@@ -188,12 +188,16 @@ def procesar_pyg():
     print("\nCalculando suma móvil de 12 meses...")
     df_final = calcular_suma_movil_12m(df_desacumulado)
 
-    # Seleccionar columnas finales
+    # Seleccionar columnas finales (excluir ruc, no usado por la UI)
     columnas_finales = [
-        'fecha', 'segmento', 'ruc', 'cooperativa', 'codigo', 'cuenta',
+        'fecha', 'segmento', 'cooperativa', 'codigo', 'cuenta',
         'valor_acumulado', 'valor_mes', 'valor_12m'
     ]
     df_final = df_final[columnas_finales]
+
+    # Optimizar tipos de datos para reducir memoria
+    for col in ['segmento', 'cooperativa', 'codigo', 'cuenta']:
+        df_final[col] = df_final[col].astype('category')
 
     # Estadísticas finales
     print("\n" + "=" * 40)

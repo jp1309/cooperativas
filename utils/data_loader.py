@@ -362,11 +362,18 @@ def cargar_balance() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     if not filepath.exists():
         raise FileNotFoundError(f"No se encontró {filepath}")
 
-    df = pd.read_parquet(filepath)
+    # Cargar solo columnas necesarias (excluir ruc y nivel que no se usan en la UI)
+    columnas_necesarias = ['fecha', 'segmento', 'cooperativa', 'codigo', 'cuenta', 'valor']
+    df = pd.read_parquet(filepath, columns=columnas_necesarias)
 
     # Convertir fecha si es necesario
     if not pd.api.types.is_datetime64_any_dtype(df['fecha']):
         df['fecha'] = pd.to_datetime(df['fecha'])
+
+    # Optimizar memoria: convertir strings a category
+    for col in ['codigo', 'cuenta']:
+        if col in df.columns and df[col].dtype == 'object':
+            df[col] = df[col].astype('category')
 
     calidad = {
         'registros': len(df),
@@ -444,11 +451,19 @@ def cargar_pyg() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     if not filepath.exists():
         raise FileNotFoundError(f"No se encontró {filepath}")
 
-    df = pd.read_parquet(filepath)
+    # Cargar solo columnas necesarias (excluir ruc que no se usa en la UI)
+    columnas_necesarias = ['fecha', 'segmento', 'cooperativa', 'codigo', 'cuenta',
+                           'valor_acumulado', 'valor_mes', 'valor_12m']
+    df = pd.read_parquet(filepath, columns=columnas_necesarias)
 
     # Convertir fecha si es necesario
     if not pd.api.types.is_datetime64_any_dtype(df['fecha']):
         df['fecha'] = pd.to_datetime(df['fecha'])
+
+    # Optimizar memoria: convertir strings a category
+    for col in ['segmento', 'cooperativa', 'codigo', 'cuenta']:
+        if col in df.columns and df[col].dtype == 'object':
+            df[col] = df[col].astype('category')
 
     calidad = {
         'registros': len(df),

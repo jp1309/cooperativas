@@ -193,11 +193,15 @@ def generar_balance_parquet():
         print(f"  Cooperativas con cambio de segmento: {len(coops_cambiaron)} (unificando al último)")
     df_final['segmento'] = df_final['cooperativa'].map(ultimo_segmento)
 
+    # Eliminar columnas no usadas por la UI
+    df_final = df_final.drop(columns=['ruc', 'nivel'], errors='ignore')
+
     # Optimizar tipos de datos
     print("Optimizando tipos de datos...")
     df_final['segmento'] = df_final['segmento'].astype('category')
     df_final['cooperativa'] = df_final['cooperativa'].astype('category')
-    df_final['nivel'] = df_final['nivel'].astype('int8')
+    df_final['codigo'] = df_final['codigo'].astype('category')
+    df_final['cuenta'] = df_final['cuenta'].astype('category')
 
     # Ordenar
     df_final = df_final.sort_values(['fecha', 'segmento', 'cooperativa', 'codigo'])
