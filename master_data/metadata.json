@@ -1,0 +1,25 @@
+{
+  "fecha_procesamiento": "2026-02-06T17:33:31.075993",
+  "registros_totales": 22769518,
+  "cooperativas": 259,
+  "segmentos": [
+    "SEGMENTO 1",
+    "SEGMENTO 1 MUTUALISTA",
+    "SEGMENTO 2",
+    "SEGMENTO 3"
+  ],
+  "fecha_min": "2018-01-31T00:00:00",
+  "fecha_max": "2025-12-31T00:00:00",
+  "meses": 96,
+  "cuentas": 1563,
+  "archivos_procesados": [
+    "2018-EEFF-MEN.zip",
+    "2019-EEFF-MEN.zip",
+    "2020-EEFF-MEN.zip",
+    "2021-EEFF-MEN.zip",
+    "2022_EEFF-Men.zip",
+    "2023_EEFF-Men.zip",
+    "2024_EEFF_Men.zip",
+    "2025_EEFF-Men.zip"
+  ]
+}
