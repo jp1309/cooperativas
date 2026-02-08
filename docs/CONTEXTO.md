@@ -12,7 +12,7 @@ Si estas leyendo esto, **DEBES actualizar este archivo** con cualquier cambio re
 ## Objetivo del proyecto
 Replicar el dashboard de bancos para cooperativas ecuatorianas, con Streamlit, usando los datos en `cooperativas/`.
 
-## Estado actual (FASE 4 COMPLETADA + AJUSTES)
+## Estado actual (PRODUCCION - Desplegado en Streamlit Cloud)
 
 ### Estructura de archivos
 ```
@@ -37,7 +37,7 @@ cooperativas/
 │   ├── procesar_indicadores.py         # Pipeline ETL balance/PyG desde XLSM (legacy)
 │   └── generar_agregados.py            # Genera datos pre-agregados desde balance.parquet
 ├── master_data/
-│   ├── balance.parquet                 # 73 MB, 22.7M registros
+│   ├── balance.parquet                 # 78 MB, 22.7M registros (optimizado: sin ruc/nivel, category dtypes)
 │   ├── pyg.parquet                     # 16 MB, PyG con valor_12m
 │   ├── indicadores.parquet             # ~3 MB, indicadores CAMEL oficiales
 │   ├── indicadores_raw.parquet         # Indicadores crudos extraídos de XLSM (legacy, no usado)
@@ -48,26 +48,33 @@ cooperativas/
 │   ├── metadata.json                   # Metadatos de balance
 │   ├── metadata_agregados.json         # Metadatos de agregados
 │   └── metadata_indicadores.json       # Metadatos de indicadores CAMEL
-├── balances_cooperativas/              # ZIPs fuente balance (2018-2025)
-├── indicadores/                        # ZIPs fuente indicadores XLSM (2020-2025)
-└── docs/
-    └── CONTEXTO.md
+├── balances_cooperativas/              # ZIPs fuente balance (2018-2025, no en repo)
+├── indicadores/                        # ZIPs fuente indicadores XLSM (2020-2025, no en repo)
+├── docs/
+│   └── CONTEXTO.md
+├── .streamlit/config.toml              # Tema y configuración de servidor
+├── .gitignore                          # Excluye ZIPs fuente, archivos intermedios
+├── requirements.txt                    # Dependencias para Streamlit Cloud
+└── README.md                           # Documentación del proyecto
 ```
 
 ### Datos procesados
 
-#### balance.parquet
+#### balance.parquet (78 MB disco → 500 MB RAM)
 - 22,769,518 registros (original, para consultas detalladas)
 - 259 cooperativas únicas
+- Columnas: fecha, segmento, cooperativa, codigo, cuenta, valor (todas category excepto fecha/valor)
 - Segmentos: SEGMENTO 1, SEGMENTO 2, SEGMENTO 3, SEGMENTO 1 MUTUALISTA
 - Período: Enero 2018 - Diciembre 2025 (96 meses)
+- **Sin columnas ruc ni nivel** (eliminadas para reducir memoria, no usadas por UI)
 
-#### pyg.parquet
+#### pyg.parquet (17 MB disco → 79 MB RAM)
 - 2,126,296 registros
 - 242 cooperativas únicas (normalizado LTDA)
-- Columnas: fecha, segmento, ruc, cooperativa, codigo, cuenta, valor_acumulado, valor_mes, valor_12m
+- Columnas: fecha, segmento, cooperativa, codigo, cuenta, valor_acumulado, valor_mes, valor_12m (todas category excepto fecha/valores)
 - Período: 2020-2025 (72 meses)
 - 75% de registros con valor_12m válido (primeros 11 meses de cada serie no tienen)
+- **Sin columna ruc** (eliminada para reducir memoria, no usada por UI)
 
 #### indicadores.parquet
 - ~550K registros
@@ -219,6 +226,35 @@ python scripts/procesar_camel.py
 streamlit run Inicio.py --server.port 8502
 ```
 
+### Despliegue en producción
+
+**Repositorio**: [jp1309/cooperativas](https://github.com/jp1309/cooperativas) (rama `main`)
+**Plataforma**: Streamlit Cloud (free tier, ~1 GB RAM)
+**Archivo principal**: `Inicio.py`
+
+Archivos de despliegue:
+- `requirements.txt`: streamlit, pandas, numpy, pyarrow, plotly, kaleido
+- `.streamlit/config.toml`: Tema azul (#2c5282), servidor headless
+- `.gitignore`: Excluye ZIPs fuente, archivos intermedios, __pycache__
+
+### Optimización de memoria (CRÍTICO para Streamlit Cloud)
+
+Los parquets se optimizaron para caber en el límite de ~1 GB RAM de Streamlit Cloud:
+
+| Métrica | Sin optimizar | Optimizado | Reducción |
+|---------|---------------|------------|-----------|
+| Balance RAM | 4,736 MB | 500 MB | -89% |
+| PyG RAM | 723 MB | 79 MB | -89% |
+| **Total** | **5,459 MB** | **579 MB** | **-89%** |
+
+Optimizaciones aplicadas:
+1. **Columnas eliminadas**: `ruc` (1.4 GB, no usada) y `nivel` (no usada) del balance; `ruc` del PyG
+2. **Category dtypes**: `codigo`, `cuenta`, `segmento`, `cooperativa` almacenados como category (no object)
+3. **Carga selectiva**: `pd.read_parquet(columns=[...])` en `data_loader.py` carga solo columnas necesarias
+4. **Dtypes en parquet**: Los scripts de procesamiento ya generan category dtypes, la conversión en carga es un safety net
+
+**IMPORTANTE**: Si se regeneran los parquets, asegurar que los scripts de procesamiento mantengan la exclusión de `ruc`/`nivel` y el uso de category dtypes.
+
 ## Próximo paso sugerido
 - Agregar exportación de datos a Excel
 - Agregar comparativo entre segmentos
@@ -261,8 +297,20 @@ Función `truncar_nombre(n, max_len=30)` en `4_CAMEL.py` mantiene inicio y final
 - **No normalizar nombres** - causa cooperativas duplicadas (LIMITADA vs LTDA)
 - **No excluir VT_** - incluye totales pre-calculados en rankings
 - **Truncar nombres a longitud fija** - hace indistinguibles cooperativas con prefijo largo similar (mutualistas)
+- **No optimizar dtypes para Streamlit Cloud** - balance.parquet con object dtypes usa 4.7 GB RAM, excede el límite de 1 GB. Siempre usar category dtypes y excluir columnas no usadas (ruc, nivel)
 
 ## Historial de cambios
+
+### 2026-02-08 - Despliegue en producción
+- **Desplegado en Streamlit Cloud** desde GitHub repo jp1309/cooperativas
+- **Optimización de memoria**: RAM reducida de 5.5 GB a 579 MB (-89%)
+  - Eliminadas columnas `ruc` y `nivel` de balance.parquet (no usadas por UI)
+  - Eliminada columna `ruc` de pyg.parquet (no usada por UI)
+  - Columnas string convertidas a category dtype en scripts de procesamiento y data_loader
+  - Carga selectiva con `pd.read_parquet(columns=[...])`
+- **Archivos de despliegue creados**: requirements.txt, .streamlit/config.toml, .gitignore, README.md
+- **CAMEL Evolución Temporal**: Agregados selectores Año inicio/Año fin (igual que Heatmap)
+- **Rangos de heatmap ajustados**: ROE [-5, 15], ROA [-1, 3] (proporción ~5x leverage)
 
 ### 2026-02-06 - Refinamientos finales
 - **Indicadores reducidos a 37**: Eliminados CART_REF, CART_REEST, CART_VENCER de A-Calidad de Activos
