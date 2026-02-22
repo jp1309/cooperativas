@@ -7,6 +7,7 @@ Lee archivos ZIP con datos CSV/TXT y genera balance.parquet consolidado.
 import pandas as pd
 import zipfile
 import json
+import io
 from pathlib import Path
 from datetime import datetime
 import warnings
@@ -68,37 +69,168 @@ def normalizar_nombre(nombre: str) -> str:
     return nombre
 
 
+def leer_xlsm_balance(zip_path: Path, zf: zipfile.ZipFile) -> pd.DataFrame:
+    """
+    Lee archivos XLSM de balance (formato nuevo desde 2026).
+
+    El ZIP contiene múltiples XLSM (uno por segmento). Cada XLSM tiene una
+    hoja de Estado Financiero con formato ancho: COD CONTABLE, Nombre de Cuenta,
+    TIPO*, GRUPO**, y luego una columna por cooperativa. La fecha de corte está
+    en una fila anterior al header.
+    Devuelve un DataFrame en formato largo (una fila por cooperativa+cuenta).
+    """
+    IGNORAR = {'CONAFIPS', 'FINANCOOP'}
+    # Segmento inferido del nombre del archivo
+    SEGMENTOS = {
+        'Segmento 1': 'SEGMENTO 1',
+        'Segmento 2': 'SEGMENTO 2',
+        'Segmento 3': 'SEGMENTO 3',
+        'Mutualistas': 'SEGMENTO 1 MUTUALISTA',
+    }
+
+    xlsms = [
+        f for f in zf.namelist()
+        if f.endswith('.xlsm')
+        and not any(ign in f for ign in IGNORAR)
+    ]
+    print(f"    XLSM a procesar: {[f.split('/')[-1] for f in xlsms]}")
+
+    dfs = []
+    for xlsm_path in xlsms:
+        # Detectar segmento desde nombre de archivo
+        segmento = None
+        for key, val in SEGMENTOS.items():
+            if key in xlsm_path:
+                segmento = val
+                break
+        if segmento is None:
+            print(f"    Saltando (segmento desconocido): {xlsm_path}")
+            continue
+
+        with zf.open(xlsm_path) as f:
+            content = f.read()
+
+        xl = pd.ExcelFile(io.BytesIO(content))
+        # Buscar hoja de Estado Financiero
+        hoja = next(
+            (s for s in xl.sheet_names if 'ESTADO' in s.upper() and 'FINANCIERO' in s.upper()),
+            None
+        )
+        if hoja is None:
+            print(f"    Sin hoja de Estado Financiero en {xlsm_path}")
+            continue
+
+        df_raw = xl.parse(hoja, header=None)
+
+        # Encontrar fila del header (contiene 'COD CONTABLE')
+        header_row = None
+        for i, row in df_raw.iterrows():
+            if any(str(v).strip().upper() == 'COD CONTABLE' for v in row if pd.notna(v)):
+                header_row = i
+                break
+        if header_row is None:
+            print(f"    No se encontró header en {xlsm_path}")
+            continue
+
+        # Encontrar fecha de corte (buscar celda con datetime o '2026-' antes del header)
+        fecha = None
+        for i in range(header_row):
+            for v in df_raw.iloc[i]:
+                if isinstance(v, datetime):
+                    fecha = v
+                    break
+                if isinstance(v, str) and '2026-' in v:
+                    try:
+                        fecha = pd.to_datetime(v)
+                    except Exception:
+                        pass
+                if fecha:
+                    break
+            if fecha:
+                break
+        # Fallback: extraer del nombre de archivo (ene_2026 → 2026-01-31)
+        if fecha is None:
+            import re
+            meses = {'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
+                     'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12}
+            m = re.search(r'_(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)_(\d{4})', xlsm_path)
+            if m:
+                mes_n = meses[m.group(1)]
+                anio_n = int(m.group(2))
+                ultimo_dia = pd.Timestamp(anio_n, mes_n, 1) + pd.offsets.MonthEnd(0)
+                fecha = ultimo_dia
+        if fecha is None:
+            print(f"    No se encontró fecha en {xlsm_path}, saltando")
+            continue
+
+        print(f"    {xlsm_path.split('/')[-1]}: fecha={pd.Timestamp(fecha).strftime('%Y-%m-%d')}, segmento={segmento}")
+
+        # Extraer datos usando el header encontrado
+        df_raw.columns = df_raw.iloc[header_row]
+        df_data = df_raw.iloc[header_row + 1:].copy()
+        df_data = df_data.rename(columns={
+            'COD CONTABLE': 'codigo',
+            'Nombre de Cuenta': 'cuenta',
+        })
+
+        # Columnas de cooperativas = todo excepto las primeras 4 metadatos
+        cols_meta = ['codigo', 'cuenta', 'TIPO*', 'GRUPO**']
+        cols_coops = [c for c in df_data.columns if c not in cols_meta and pd.notna(c) and str(c).strip()]
+
+        # Eliminar fila de totales VT_TOTAL si existe
+        cols_coops = [c for c in cols_coops if 'VT_TOTAL' not in str(c).upper()]
+
+        # Melt: formato ancho → largo
+        df_long = df_data[['codigo', 'cuenta'] + cols_coops].melt(
+            id_vars=['codigo', 'cuenta'],
+            var_name='cooperativa',
+            value_name='valor'
+        )
+        df_long['fecha'] = pd.Timestamp(fecha)
+        df_long['segmento'] = segmento
+        df_long['ruc'] = None
+
+        # Limpiar
+        df_long = df_long.dropna(subset=['codigo', 'valor'])
+        df_long['codigo'] = df_long['codigo'].astype(str).str.strip()
+        df_long = df_long[df_long['codigo'].str.match(r'^\d+$')]  # Solo códigos numéricos
+        df_long['valor'] = pd.to_numeric(df_long['valor'], errors='coerce').fillna(0)
+
+        dfs.append(df_long)
+
+    if not dfs:
+        raise ValueError("No se pudo leer ningún XLSM del ZIP")
+
+    return pd.concat(dfs, ignore_index=True)
+
+
 def leer_archivo_desde_zip(zip_path: Path) -> pd.DataFrame:
-    """Lee el archivo CSV/TXT desde un ZIP."""
+    """Lee el archivo de datos desde un ZIP (CSV/TXT o XLSM según año)."""
     print(f"  Procesando: {zip_path.name}")
 
     # Determinar año del archivo para decidir el formato
     año_archivo = int(zip_path.name.split('-')[0].split('_')[0])
 
     with zipfile.ZipFile(zip_path, 'r') as zf:
-        # Obtener nombre del archivo interno (cualquier extensión tabular)
         archivos = zf.namelist()
-        print(f"    Archivos internos: {archivos}")
-        # Priorizar csv/txt, pero aceptar cualquier archivo no-directorio como fallback
+        print(f"    Archivos internos: {[a.split('/')[-1] for a in archivos if not a.endswith('/')]}")
+
+        # Detectar si el ZIP contiene XLSM (nuevo formato desde 2026)
+        xlsms = [f for f in archivos if f.endswith('.xlsm')]
+        if xlsms:
+            print(f"    Formato XLSM detectado ({len(xlsms)} archivos)")
+            return leer_xlsm_balance(zip_path, zf)
+
+        # Formato CSV/TXT (2018-2025)
         candidatos = [f for f in archivos if f.endswith(('.csv', '.txt', '.CSV', '.TXT'))]
-        if not candidatos:
-            candidatos = [f for f in archivos if not f.endswith('/') and '.' in f]
         if not candidatos:
             candidatos = [f for f in archivos if not f.endswith('/')]
         archivo_datos = candidatos[0]
         print(f"    Leyendo: {archivo_datos}")
 
-        # Leer contenido
         with zf.open(archivo_datos) as f:
             if año_archivo >= 2022:
-                # Archivos 2022+ usan tabs y nombres de columnas diferentes
-                df = pd.read_csv(
-                    f,
-                    sep='\t',
-                    encoding='utf-8-sig',
-                    dtype=str
-                )
-                # Normalizar nombres de columnas
+                df = pd.read_csv(f, sep='\t', encoding='utf-8-sig', dtype=str)
                 df.columns = df.columns.str.strip().str.replace('\ufeff', '')
                 df = df.rename(columns={
                     'FECHA DE CORTE': 'FECHA_DE_CORTE',
@@ -107,49 +239,42 @@ def leer_archivo_desde_zip(zip_path: Path) -> pd.DataFrame:
                     'SALDO (USD)': 'SALDO_USD',
                 })
             else:
-                # Archivos 2018-2021 usan punto y coma
-                df = pd.read_csv(
-                    f,
-                    sep=';',
-                    encoding='utf-8-sig',
-                    dtype={
-                        'CUENTA': str,
-                        'RUC': str,
-                    }
-                )
+                df = pd.read_csv(f, sep=';', encoding='utf-8-sig', dtype={'CUENTA': str, 'RUC': str})
 
-    # Limpiar nombres de columnas (remover BOM si existe)
     df.columns = df.columns.str.strip().str.replace('\ufeff', '')
-
     return df
 
 
 def procesar_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Procesa y normaliza el DataFrame."""
+    """Procesa y normaliza el DataFrame.
 
-    # Renombrar columnas
-    df = df.rename(columns={
-        'FECHA_DE_CORTE': 'fecha',
-        'SEGMENTO': 'segmento',
-        'RUC': 'ruc',
-        'RAZON_SOCIAL': 'cooperativa',
-        'CUENTA': 'codigo',
-        'DESCRIPCION_CUENTA': 'cuenta',
-        'SALDO_USD': 'valor',
-    })
+    Acepta tanto el formato CSV histórico (columnas en mayúsculas con prefijos)
+    como el formato largo ya normalizado que devuelve leer_xlsm_balance.
+    """
 
-    # Parsear fecha
+    # Renombrar columnas del formato CSV (si vienen en ese formato)
+    if 'FECHA_DE_CORTE' in df.columns:
+        df = df.rename(columns={
+            'FECHA_DE_CORTE': 'fecha',
+            'SEGMENTO': 'segmento',
+            'RUC': 'ruc',
+            'RAZON_SOCIAL': 'cooperativa',
+            'CUENTA': 'codigo',
+            'DESCRIPCION_CUENTA': 'cuenta',
+            'SALDO_USD': 'valor',
+        })
+
+    # Parsear fecha (si no es ya datetime)
     df['fecha'] = pd.to_datetime(df['fecha'], format='mixed')
 
-    # Normalizar nombres
+    # Normalizar nombres de cooperativas
     df['cooperativa'] = df['cooperativa'].apply(normalizar_nombre)
 
     # Calcular nivel jerárquico
     df['nivel'] = df['codigo'].apply(calcular_nivel)
 
-    # Limpiar valores - manejar formato con coma decimal
+    # Limpiar valores - manejar formato con coma decimal (CSV histórico)
     if df['valor'].dtype == object:
-        # Reemplazar coma por punto para convertir a número
         df['valor'] = df['valor'].str.replace(',', '.', regex=False)
     df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
 
