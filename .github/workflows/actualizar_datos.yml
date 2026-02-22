@@ -39,7 +39,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pandas>=2.0.0 pyarrow>=12.0.0 numpy>=1.24.0
-          pip install requests beautifulsoup4
+          pip install requests beautifulsoup4 openpyxl
 
       # 4. Descargar datos nuevos de la SEPS
       - name: Descargar datos de la SEPS
