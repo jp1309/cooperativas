@@ -94,7 +94,7 @@ jobs:
       - name: Commit y push de datos actualizados
         run: |
           # Verificar si hay cambios
-          git add master_data/*.parquet master_data/metadata*.json
+          git add master_data/*.parquet master_data/metadata.json || true
 
           if git diff --cached --quiet; then
             echo "No hay cambios en los datos. Nada que commitear."
