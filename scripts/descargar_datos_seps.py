@@ -148,7 +148,7 @@ def hay_datos_nuevos(anio: int, mes_actual: int) -> bool:
     if fecha_max_str is None:
         return True  # Sin metadata, asumir que hay datos nuevos
 
-    fecha_max = datetime.strptime(fecha_max_str, "%Y-%m-%d")
+    fecha_max = datetime.fromisoformat(fecha_max_str.split("T")[0])
     mes_esperado = mes_actual - 1 if mes_actual > 1 else 12
     anio_esperado = anio if mes_actual > 1 else anio - 1
 
