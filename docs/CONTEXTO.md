@@ -334,6 +334,40 @@ Función `truncar_nombre(n, max_len=30)` en `4_CAMEL.py` mantiene inicio y final
 - **Truncar nombres a longitud fija** - hace indistinguibles cooperativas con prefijo largo similar (mutualistas)
 - **No optimizar dtypes para Streamlit Cloud** - balance.parquet con object dtypes usa 4.7 GB RAM, excede el límite de 1 GB. Siempre usar category dtypes y excluir columnas no usadas (ruc, nivel)
 
+### Errores cometidos en sesión 2026-02-22 (aprendizajes)
+
+#### 1. Normalización de nombres incompleta al renombrar mutualistas
+**Error**: Al renombrar mutualistas a `Mutualista X` en `procesar_balance_cooperativas.py`, no se actualizaron simultáneamente los otros 3 lugares que también usaban los nombres antiguos:
+- `config/indicator_mapping.py` → claves en `COLORES_COOPERATIVAS`
+- `scripts/procesar_camel.py` → expansión a nombre largo
+- `scripts/procesar_pyg.py` → sin ninguna normalización de mutualistas
+
+**Consecuencia**: Los colores de las 4 mutualistas se volvieron negros (el dict no encontraba match), y los parquets de indicadores y PyG tenían nombres distintos al de balance, rompiendo la consistencia entre módulos.
+
+**Regla**: Cuando se cambia el nombre canónico de una entidad, buscar con grep en TODO el proyecto antes de commitear: `grep -rn "MUTUALISTA\|nombre_anterior" .`
+
+#### 2. Llamada a `generar_agregados.py` sin controlar el tamaño de salida
+**Error**: Al llamar `generar_agregados.py` localmente (sin supervisión) durante la corrección de colores, el script generó `agg_ranking_cooperativas.parquet` de 212 MB (era 1.4 MB). El `groupby` con `observed=False` en category dtypes genera el producto cartesiano de todas las categorías (157M filas en lugar de 157K).
+
+**Consecuencia**: El push fue rechazado por GitHub (límite 100 MB). Se tuvo que hacer `--amend` con los archivos restaurados del commit anterior.
+
+**Regla**:
+- Nunca agregar archivos `agg_*.parquet` al staging sin verificar su tamaño (`ls -lh master_data/agg_*.parquet`)
+- Si un parquet creció más del doble inesperadamente, NO hacer push — investigar primero
+- Al regenerar pre-agregados localmente, asegurarse de que `generar_agregados.py` use `observed=True` en todos los groupby con category dtypes
+
+#### 3. `use_container_width` deprecado en Streamlit 1.54
+**Error**: El proyecto usaba `use_container_width=True` (19 ocurrencias en 5 archivos), parámetro eliminado en Streamlit 1.54. Streamlit Cloud instaló 1.54 y generó warnings masivos en los logs.
+
+**Solución**: Reemplazar `use_container_width=True` → `width='stretch'` y `use_container_width=False` → `width='content'`.
+
+**Regla**: Al crear nuevos gráficos con `st.plotly_chart()` o `st.page_link()`, usar `width='stretch'` directamente.
+
+#### 4. `observed=False` deprecado en pandas con category dtypes
+**Error**: `groupby()` y `pivot_table()` en `2_Balance_General.py` sin `observed=True` generaban FutureWarning en producción porque las columnas son category dtype.
+
+**Regla**: Siempre agregar `observed=True` en cualquier `groupby()` o `pivot_table()` que opere sobre columnas con category dtype. En este proyecto: `cooperativa`, `segmento`, `codigo`, `cuenta`.
+
 ## Historial de cambios
 
 ### 2026-02-22 - Automatización mensual y datos enero 2026
