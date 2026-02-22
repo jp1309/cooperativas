@@ -1,10 +1,13 @@
 name: Actualizar datos SEPS
 
 on:
-  # Corre automáticamente el día 15 de cada mes a las 6 AM UTC
-  # (la SEPS suele publicar los datos entre los días 10-15 del mes siguiente)
+  # Intenta el día 15 primero. Si la SEPS aún no publicó, reintenta el 18, 20 y 22.
+  # El script detecta automáticamente si ya hay datos nuevos y se detiene si no los hay.
   schedule:
-    - cron: '0 6 15 * *'
+    - cron: '0 6 15 * *'   # Día 15 a las 6 AM UTC (intento principal)
+    - cron: '0 6 18 * *'   # Día 18 a las 6 AM UTC (1er reintento)
+    - cron: '0 6 20 * *'   # Día 20 a las 6 AM UTC (2do reintento)
+    - cron: '0 6 22 * *'   # Día 22 a las 6 AM UTC (3er reintento)
 
   # También permite correrlo manualmente desde GitHub → Actions
   workflow_dispatch:
