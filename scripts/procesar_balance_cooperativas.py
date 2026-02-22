@@ -38,12 +38,32 @@ def calcular_nivel(codigo: str) -> int:
         return 5
 
 
+# Mapeo explícito de nombres de mutualistas:
+# La SEPS usó el nombre largo hasta 2025 y lo abrevió a partir de 2026.
+# Unificamos ambas formas al nombre canónico "Mutualista X".
+MUTUALISTAS_NOMBRES = {
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AMBATO': 'Mutualista Ambato',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AZUAY':  'Mutualista Azuay',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA IMBABURA': 'Mutualista Imbabura',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA PICHINCHA': 'Mutualista Pichincha',
+    # Nombres cortos usados desde enero 2026
+    'AMBATO':   'Mutualista Ambato',
+    'AZUAY':    'Mutualista Azuay',
+    'IMBABURA': 'Mutualista Imbabura',
+    'PICHINCHA': 'Mutualista Pichincha',
+}
+
+
 def normalizar_nombre(nombre: str) -> str:
     """Normaliza el nombre de la cooperativa."""
     if pd.isna(nombre):
         return ""
-    # Convertir a título y limpiar espacios
     nombre = str(nombre).strip()
+
+    # Aplicar mapeo explícito de mutualistas primero
+    if nombre.upper() in MUTUALISTAS_NOMBRES:
+        return MUTUALISTAS_NOMBRES[nombre.upper()]
+
     # Remover prefijos comunes para nombres más cortos
     prefijos = [
         "COOPERATIVA DE AHORRO Y CREDITO ",
