@@ -1,0 +1,114 @@
+name: Actualizar datos SEPS
+
+on:
+  # Corre automáticamente el día 15 de cada mes a las 6 AM UTC
+  # (la SEPS suele publicar los datos entre los días 10-15 del mes siguiente)
+  schedule:
+    - cron: '0 6 15 * *'
+
+  # También permite correrlo manualmente desde GitHub → Actions
+  workflow_dispatch:
+
+permissions:
+  contents: write   # Necesario para hacer push de los parquet actualizados
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # 1. Checkout del repositorio
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Configurar Python
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 3. Instalar dependencias
+      - name: Instalar dependencias
+        run: |
+          pip install --upgrade pip
+          pip install pandas>=2.0.0 pyarrow>=12.0.0 numpy>=1.24.0
+          pip install requests beautifulsoup4
+
+      # 4. Descargar datos nuevos de la SEPS
+      - name: Descargar datos de la SEPS
+        id: descarga
+        run: |
+          python scripts/descargar_datos_seps.py
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      # 5. Si no hay datos nuevos (exit code 2), terminar el workflow
+      - name: Verificar si hay datos nuevos
+        if: steps.descarga.outcome == 'failure'
+        run: |
+          # exit code 1 = error real, exit code 2 = sin datos nuevos
+          # GitHub Actions no diferencia exit codes con continue-on-error,
+          # así que chequeamos el outcome y usamos un archivo de estado
+          echo "El script de descarga falló o no hay datos nuevos."
+          echo "Revisar los logs del paso anterior para más detalles."
+          exit 1
+
+      # 6. Ejecutar pipeline ETL completo
+      - name: Procesar Balance General
+        run: python scripts/procesar_balance_cooperativas.py
+
+      - name: Generar datos pre-agregados
+        run: python scripts/generar_agregados.py
+
+      - name: Procesar PyG
+        run: python scripts/procesar_pyg.py
+
+      - name: Procesar indicadores CAMEL
+        run: python scripts/procesar_camel.py
+
+      # 7. Verificar tamaño de parquet (alerta si se acerca al límite de 100 MB)
+      - name: Verificar tamaño de archivos
+        run: |
+          echo "=== Tamaño de archivos generados ==="
+          ls -lh master_data/*.parquet master_data/metadata*.json 2>/dev/null || true
+          # Alerta si balance.parquet supera 95 MB
+          SIZE=$(stat -c%s master_data/balance.parquet 2>/dev/null || echo 0)
+          LIMIT=$((95 * 1024 * 1024))
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+            echo "::warning::balance.parquet supera 95 MB ($((SIZE / 1024 / 1024)) MB). Considerar compresión adicional."
+          fi
+
+      # 8. Configurar git y hacer commit + push
+      - name: Configurar git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit y push de datos actualizados
+        run: |
+          # Verificar si hay cambios
+          git add master_data/*.parquet master_data/metadata*.json
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios en los datos. Nada que commitear."
+            exit 0
+          fi
+
+          # Obtener fecha máxima de los datos desde metadata
+          FECHA_MAX=$(python -c "
+          import json
+          with open('master_data/metadata.json') as f:
+              m = json.load(f)
+          print(m.get('fecha_max', 'desconocida'))
+          " 2>/dev/null || echo "desconocida")
+
+          git commit -m "Actualizar datos automáticamente a ${FECHA_MAX}
+
+          Workflow: GitHub Actions (cron mensual)
+          Fuente: Portal SEPS - Estados Financieros Mensuales"
+
+          git push
