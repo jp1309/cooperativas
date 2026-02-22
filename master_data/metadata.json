@@ -1,5 +1,5 @@
 {
-  "fecha_procesamiento": "2026-02-08T11:57:28.081293",
+  "fecha_procesamiento": "2026-02-22T19:06:17.380677",
   "registros_totales": 22769518,
   "cooperativas": 259,
   "segmentos": [
@@ -13,13 +13,6 @@
   "meses": 96,
   "cuentas": 1563,
   "archivos_procesados": [
-    "2018-EEFF-MEN.zip",
-    "2019-EEFF-MEN.zip",
-    "2020-EEFF-MEN.zip",
-    "2021-EEFF-MEN.zip",
-    "2022_EEFF-Men.zip",
-    "2023_EEFF-Men.zip",
-    "2024_EEFF_Men.zip",
-    "2025_EEFF-Men.zip"
+    "2026_EEFF-Men.zip"
   ]
 }
