@@ -31,13 +31,17 @@ cooperativas/
 │   ├── __init__.py
 │   └── indicator_mapping.py            # Mapeo de cuentas, segmentos, COLORES y CAMEL
 ├── scripts/
-│   ├── procesar_balance_cooperativas.py # Pipeline ETL balances (ZIPs → balance.parquet)
+│   ├── procesar_balance_cooperativas.py # Pipeline ETL balances (ZIPs/XLSM → balance.parquet)
 │   ├── procesar_pyg.py                 # Pipeline PyG (desacumulación + suma móvil 12M)
 │   ├── procesar_camel.py               # Pipeline ETL indicadores CAMEL desde pivot cache
 │   ├── procesar_indicadores.py         # Pipeline ETL balance/PyG desde XLSM (legacy)
-│   └── generar_agregados.py            # Genera datos pre-agregados desde balance.parquet
+│   ├── generar_agregados.py            # Genera datos pre-agregados desde balance.parquet
+│   └── descargar_datos_seps.py         # Scraping y descarga automática del portal SEPS
+├── .github/
+│   └── workflows/
+│       └── actualizar_datos.yml        # GitHub Actions: actualización automática mensual
 ├── master_data/
-│   ├── balance.parquet                 # 78 MB, 22.7M registros (optimizado: sin ruc/nivel, category dtypes)
+│   ├── balance.parquet                 # 82 MB, 23M registros (optimizado: sin ruc/nivel, category dtypes)
 │   ├── pyg.parquet                     # 16 MB, PyG con valor_12m
 │   ├── indicadores.parquet             # ~3 MB, indicadores CAMEL oficiales
 │   ├── indicadores_raw.parquet         # Indicadores crudos extraídos de XLSM (legacy, no usado)
@@ -45,11 +49,11 @@ cooperativas/
 │   ├── agg_ranking_cooperativas.parquet # 1.4 MB - Rankings y treemaps
 │   ├── agg_series_temporales.parquet   # 2.2 MB - Series temporales
 │   ├── agg_catalogo_cooperativas.parquet # 5 KB - Catálogo (259 cooperativas)
-│   ├── metadata.json                   # Metadatos de balance
+│   ├── metadata.json                   # Metadatos de balance (incluye fecha_max)
 │   ├── metadata_agregados.json         # Metadatos de agregados
 │   └── metadata_indicadores.json       # Metadatos de indicadores CAMEL
-├── balances_cooperativas/              # ZIPs fuente balance (2018-2025, no en repo)
-├── indicadores/                        # ZIPs fuente indicadores XLSM (2020-2025, no en repo)
+├── balances_cooperativas/              # ZIPs fuente balance (2018-2026, no en repo)
+├── indicadores/                        # ZIPs fuente indicadores XLSM (2020-2026, no en repo)
 ├── docs/
 │   └── CONTEXTO.md
 ├── .streamlit/config.toml              # Tema y configuración de servidor
@@ -60,13 +64,14 @@ cooperativas/
 
 ### Datos procesados
 
-#### balance.parquet (78 MB disco → 500 MB RAM)
-- 22,769,518 registros (original, para consultas detalladas)
+#### balance.parquet (82 MB disco → ~500 MB RAM)
+- 23,003,634 registros (incluye enero 2026)
 - 259 cooperativas únicas
 - Columnas: fecha, segmento, cooperativa, codigo, cuenta, valor (todas category excepto fecha/valor)
 - Segmentos: SEGMENTO 1, SEGMENTO 2, SEGMENTO 3, SEGMENTO 1 MUTUALISTA
-- Período: Enero 2018 - Diciembre 2025 (96 meses)
+- Período: Enero 2018 - Enero 2026 (97 meses)
 - **Sin columnas ruc ni nivel** (eliminadas para reducir memoria, no usadas por UI)
+- Nombres de mutualistas unificados retroactivamente a `Mutualista X` en toda la historia
 
 #### pyg.parquet (17 MB disco → 79 MB RAM)
 - 2,126,296 registros
@@ -145,16 +150,36 @@ Los nombres de cooperativas se normalizan para evitar duplicados:
 - **LIMITADA → LTDA** (todas las ocurrencias)
 - **LTDA. → LTDA** (elimina punto final)
 - Espacios múltiples eliminados
-- **Mutualistas**: Pivot cache tiene nombres cortos (AMBATO, AZUAY, IMBABURA, PICHINCHA) que se expanden a "ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA ..."
+- **Mutualistas**: Se unifican a nombres canónicos `Mutualista Ambato`, `Mutualista Azuay`, `Mutualista Imbabura`, `Mutualista Pichincha` (ver detalle abajo)
 - **Correcciones manuales** en `procesar_camel.py`: 8 cooperativas con nombres distintos entre indicadores y balance (dict CORRECCIONES_NOMBRE)
 
 Esta normalización se aplica en:
-- `procesar_balance_cooperativas.py`: Función `normalizar_nombre()`
+- `procesar_balance_cooperativas.py`: Función `normalizar_nombre()` + dict `MUTUALISTAS_NOMBRES`
 - `procesar_camel.py`: Función `normalizar_nombre()` + CORRECCIONES_NOMBRE + expansión de mutualistas
 - `procesar_pyg.py`: Función `normalizar_nombre_cooperativa()`
 - `indicator_mapping.py`: COLORES_COOPERATIVAS usa nombres con LTDA
 
 **Resultado**: Balance: 259 cooperativas únicas. Indicadores: 231 cooperativas (3 sin match en balance, cerradas/absorbidas 2020-2021).
+
+#### Nombres canónicos de mutualistas
+Las 4 mutualistas tienen nombres históricos distintos según el año de los datos:
+- 2018-2025 (CSV/TXT): Nombre largo (ej: `ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AMBATO`)
+- 2026+ (XLSM): Nombre corto (ej: `AMBATO`)
+
+El dict `MUTUALISTAS_NOMBRES` en `procesar_balance_cooperativas.py` mapea ambas formas al nombre canónico:
+```python
+MUTUALISTAS_NOMBRES = {
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AMBATO': 'Mutualista Ambato',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AZUAY':  'Mutualista Azuay',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA IMBABURA': 'Mutualista Imbabura',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA PICHINCHA': 'Mutualista Pichincha',
+    'AMBATO':    'Mutualista Ambato',
+    'AZUAY':     'Mutualista Azuay',
+    'IMBABURA':  'Mutualista Imbabura',
+    'PICHINCHA': 'Mutualista Pichincha',
+}
+```
+**Sin riesgo de colisión**: Existe `AMBATO LTDA` (cooperativa Segmento 1) que es diferente a `AMBATO` (mutualista Segmento 1 Mutualista). La función `normalizar_nombre()` verifica `MUTUALISTAS_NOMBRES` antes de aplicar otras transformaciones, por lo que `AMBATO LTDA` no se ve afectada.
 
 ### Unificación de segmentos
 Cooperativas que cambiaron de segmento a lo largo del tiempo (51 cooperativas) toman el segmento de su **último dato disponible**. Esto se aplica en `procesar_camel.py` como post-procesamiento después de consolidar todos los años, asegurando que cada cooperativa tenga un único segmento en todo el período.
@@ -233,7 +258,7 @@ streamlit run Inicio.py --server.port 8502
 **Archivo principal**: `Inicio.py`
 
 Archivos de despliegue:
-- `requirements.txt`: streamlit, pandas, numpy, pyarrow, plotly, kaleido
+- `requirements.txt`: streamlit, pandas, numpy, pyarrow, plotly, kaleido, requests, beautifulsoup4
 - `.streamlit/config.toml`: Tema azul (#2c5282), servidor headless
 - `.gitignore`: Excluye ZIPs fuente, archivos intermedios, __pycache__
 
@@ -262,11 +287,21 @@ Optimizaciones aplicadas:
 
 ## Notas técnicas importantes
 
-### Formatos de archivos fuente
-- Los archivos 2018-2021 usan delimitador `;` y encoding `utf-8-sig`
-- Los archivos 2022-2025 usan delimitador `\t` (tab) y tienen nombres de columnas diferentes
-- Los valores monetarios en archivos 2022+ usan coma como separador decimal
-- El script ETL maneja ambos formatos automáticamente
+### Formatos de archivos fuente por año
+| Año | Formato | Delimitador | Notas |
+|-----|---------|-------------|-------|
+| 2018-2021 | CSV/TXT | `;` | Encoding `utf-8-sig` |
+| 2022-2025 | CSV/TXT | `\t` (tab) | Coma decimal en valores, columnas diferentes |
+| 2026+ | XLSM | N/A | ZIP con un XLSM por segmento, formato ancho (cooperativas como columnas) |
+
+**Lectura de XLSM (2026+)**: Función `leer_xlsm_balance()` en `procesar_balance_cooperativas.py`:
+- Un archivo XLSM por segmento (Segmento 1, Segmento 2, Segmento 3, Mutualistas)
+- Ignora CONAFIPS y FINANCOOP (no son cooperativas de ahorro y crédito)
+- Busca la hoja con "ESTADO" y "FINANCIERO" en el nombre
+- Localiza fila header con "COD CONTABLE"
+- Extrae fecha de celda datetime antes del header (fallback: parsea nombre de archivo `_ene_2026`)
+- Aplica `melt()` para convertir formato ancho (cooperativas=columnas) a largo (una fila por cooperativa+cuenta)
+- Requiere `openpyxl` instalado
 
 ### Extracción de indicadores CAMEL desde pivot cache
 - Los archivos XLSM son ZIPs con XML interno
@@ -300,6 +335,40 @@ Función `truncar_nombre(n, max_len=30)` en `4_CAMEL.py` mantiene inicio y final
 - **No optimizar dtypes para Streamlit Cloud** - balance.parquet con object dtypes usa 4.7 GB RAM, excede el límite de 1 GB. Siempre usar category dtypes y excluir columnas no usadas (ruc, nivel)
 
 ## Historial de cambios
+
+### 2026-02-22 - Automatización mensual y datos enero 2026
+
+#### Automatización con GitHub Actions
+- **Creado** `.github/workflows/actualizar_datos.yml`: workflow que corre automáticamente los días 15, 18, 20 y 22 de cada mes a las 6 AM UTC (reintentos en caso de que la SEPS no publique el día 15)
+- **Creado** `scripts/descargar_datos_seps.py`: scraping del portal SEPS para encontrar el `download_id` del ZIP del año corriente, descarga con streaming (no hace falta conocer el ID de antemano)
+- **Actualizado** `requirements.txt`: agregados `requests>=2.31.0` y `beautifulsoup4>=4.12.0`
+- El workflow usa `GITHUB_TOKEN` con `permissions: contents: write` para hacer commit+push automático de los parquets actualizados
+- Streamlit Cloud detecta el push y se redespliega automáticamente
+
+#### Soporte para formato XLSM 2026
+- La SEPS cambió el formato del ZIP de balance: 2026 contiene 4 archivos XLSM (uno por segmento) en formato ancho (cooperativas como columnas), en lugar del CSV/TXT de años anteriores
+- **Agregada** función `leer_xlsm_balance()` en `procesar_balance_cooperativas.py`
+- `leer_archivo_desde_zip()` ahora auto-detecta si el ZIP contiene XLSM y delega a la función correcta
+- `procesar_dataframe()` maneja ambos formatos (CSV con columna `FECHA_DE_CORTE`, y XLSM ya normalizado)
+- Requiere `openpyxl` (agregado al pip install del workflow)
+
+#### Modo incremental en ETL de balance
+- `generar_balance_parquet()` ahora carga el `balance.parquet` existente como base histórica
+- Solo procesa ZIPs del año de `fecha_max` en adelante
+- Filtra registros nuevos (fecha > fecha_max existente) y concatena
+- Esto permite que GitHub Actions procese solo el ZIP nuevo sin necesitar los 8 años de histórico
+
+#### Datos enero 2026
+- **234,116 nuevos registros** procesados desde 4 archivos XLSM
+- **Total: 23,003,634 registros** (era 22,769,518)
+- **Período: Enero 2018 - Enero 2026** (97 meses, era 96)
+- `balance.parquet`: 82 MB (era 78 MB)
+
+#### Normalización de nombres de mutualistas
+- Detectado cambio en nomenclatura: en 2026 las mutualistas usan nombre corto (`AMBATO`, `AZUAY`, etc.) en lugar del nombre largo de años anteriores
+- Verificado que no hay colisión con cooperativas: `AMBATO LTDA` (cooperativa Seg. 1) ≠ `AMBATO` (mutualista Seg. 1 Mutualista)
+- **Agregado** dict `MUTUALISTAS_NOMBRES` en `procesar_balance_cooperativas.py` que mapea ambas formas al nombre canónico `Mutualista X`
+- Nombres aplicados retroactivamente a los 490,208 registros de mutualistas en toda la historia del parquet
 
 ### 2026-02-08 - Despliegue en producción
 - **Desplegado en Streamlit Cloud** desde GitHub repo jp1309/cooperativas
