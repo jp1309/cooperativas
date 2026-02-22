@@ -44,9 +44,22 @@ CUENTAS_RESUMEN = {
 }
 
 
+MUTUALISTAS_NOMBRES = {
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AMBATO': 'Mutualista Ambato',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AZUAY':  'Mutualista Azuay',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA IMBABURA': 'Mutualista Imbabura',
+    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA PICHINCHA': 'Mutualista Pichincha',
+    'AMBATO':    'Mutualista Ambato',
+    'AZUAY':     'Mutualista Azuay',
+    'IMBABURA':  'Mutualista Imbabura',
+    'PICHINCHA': 'Mutualista Pichincha',
+}
+
+
 def normalizar_nombre_cooperativa(nombre: str) -> str:
     """
     Normaliza el nombre de la cooperativa para evitar duplicados.
+    - Unifica nombres de mutualistas al nombre canónico
     - Unifica LIMITADA -> LTDA
     - Elimina puntos al final
     - Normaliza espacios
@@ -55,6 +68,10 @@ def normalizar_nombre_cooperativa(nombre: str) -> str:
         return nombre
 
     nombre = str(nombre).strip()
+
+    # Normalizar mutualistas primero (antes de otras transformaciones)
+    if nombre in MUTUALISTAS_NOMBRES:
+        return MUTUALISTAS_NOMBRES[nombre]
 
     # Unificar LIMITADA a LTDA
     nombre = nombre.replace(' LIMITADA', ' LTDA')

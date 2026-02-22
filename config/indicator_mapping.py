@@ -109,7 +109,7 @@ COLORES_COOPERATIVAS = {
     'ALIANZA DEL VALLE LTDA': '#2A9D8F',                  # Verde azulado
     'POLICIA NACIONAL LTDA': '#264653',                   # Azul petróleo
     '29 DE OCTUBRE LTDA': '#E9C46A',                          # Amarillo dorado
-    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA PICHINCHA': '#9B5DE5',  # Púrpura brillante
+    'Mutualista Pichincha': '#9B5DE5',  # Púrpura brillante
     'COOPROGRESO LTDA': '#00BBF9',                        # Cian eléctrico
     'SAN FRANCISCO LTDA': '#00F5D4',                          # Turquesa neón
     'FERNANDO DAQUILEMA LTDA': '#F15BB5',                 # Rosa fucsia
@@ -135,7 +135,7 @@ COLORES_COOPERATIVAS = {
     'PABLO MUÑOZ VEGA LTDA': '#5DADE2',                   # Celeste
     'PILAHUIN TIO LTDA': '#F5B041',                       # Naranja suave
     'DE LOS SERVIDORES PUBLICOS DEL MINISTERIO DE EDUCACION Y CULTURA': '#48C9B0',  # Aguamarina
-    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AZUAY': '#D7BDE2',  # Malva
+    'Mutualista Azuay': '#D7BDE2',  # Malva
     'SAN JOSE LTDA': '#A3E4D7',                           # Menta
     'ERCO LTDA': '#FAD7A0',                               # Melocotón
 
@@ -170,7 +170,7 @@ COLORES_COOPERATIVAS = {
     'SAN ANTONIO LTDA LOS RIOS': '#F0B27A',                   # Mandarina
     'COOPAC AUSTRO LTDA': '#BB8FCE',                          # Morado suave
     'CREDI YA LTDA': '#73C6B6',                               # Verde mar
-    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA AMBATO': '#F1C40F',  # Oro
+    'Mutualista Ambato': '#F1C40F',  # Oro
     'MAQUITA CUSHUN LTDA': '#E59866',                         # Terracota
 
     # =========================================================================
@@ -184,7 +184,7 @@ COLORES_COOPERATIVAS = {
     'PEDRO MONCAYO LTDA': '#F9E79F',
     'VISION DE LOS ANDES VIS ANDES': '#D5F5E3',
     'HUANCAVILCA LTDA': '#FADBD8',
-    'ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA IMBABURA': '#E8DAEF',
+    'Mutualista Imbabura': '#E8DAEF',
     'ARTESANOS LTDA': '#D6EAF8',
     'SAN ANTONIO LTDA - IMBABURA': '#FCF3CF',
     'TEXTIL 14 DE MARZO': '#FDEBD0',

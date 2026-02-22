@@ -238,11 +238,14 @@ CORRECCIONES_NOMBRE = {
     'PARA LA VIVIENDA ORDEN Y SEGURIDAD': 'ORDEN Y SEGURIDAD "OYS"',
 }
 
-# Prefijo de mutualistas en el pivot cache
-PREFIJO_MUTUALISTA = "ASOCIACION MUTUALISTA DE AHORRO Y CREDITO PARA LA VIVIENDA "
-
-# Nombres cortos de mutualistas → nombre completo en balance
-MUTUALISTAS = {'AMBATO', 'AZUAY', 'IMBABURA', 'PICHINCHA'}
+# Nombres canónicos de mutualistas (nombre corto en pivot cache → nombre canónico)
+MUTUALISTAS_NOMBRES = {
+    'AMBATO':    'Mutualista Ambato',
+    'AZUAY':     'Mutualista Azuay',
+    'IMBABURA':  'Mutualista Imbabura',
+    'PICHINCHA': 'Mutualista Pichincha',
+}
+MUTUALISTAS = set(MUTUALISTAS_NOMBRES.keys())
 
 
 def normalizar_nombre(nombre: str) -> str:
@@ -348,13 +351,13 @@ def procesar_xlsm_indicadores(xlsm_data: bytes, segmento: str) -> pd.DataFrame:
             else:
                 df['segmento'] = segmento
 
-            # Expandir nombres de mutualistas (en cache solo tienen nombre corto)
+            # Normalizar nombres de mutualistas al nombre canónico
             mask_mutualista = (
                 df['cooperativa'].isin(MUTUALISTAS) &
                 (df['segmento'].str.contains('MUTUALISTA', na=False))
             )
             df.loc[mask_mutualista, 'cooperativa'] = (
-                PREFIJO_MUTUALISTA + df.loc[mask_mutualista, 'cooperativa']
+                df.loc[mask_mutualista, 'cooperativa'].map(MUTUALISTAS_NOMBRES)
             )
 
             # Melt de wide a long
