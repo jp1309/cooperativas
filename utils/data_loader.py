@@ -2,6 +2,7 @@
 """
 Carga centralizada de datos con validación y limpieza para cooperativas.
 Usa archivos pre-agregados para consultas rápidas.
+Datos: ene 2018 - ene 2026 (97 meses).
 """
 
 import pandas as pd
