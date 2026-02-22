@@ -257,7 +257,7 @@ def main():
                     margin=dict(l=10, r=10, t=40, b=40)
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
                 # Estadísticas
                 col_s1, col_s2, col_s3 = st.columns(3)
@@ -354,7 +354,7 @@ def main():
                         hovermode='x unified',
                     )
 
-                    st.plotly_chart(fig_evol, use_container_width=True)
+                    st.plotly_chart(fig_evol, width='stretch')
                 else:
                     st.warning("No hay datos disponibles para las cooperativas seleccionadas.")
 
@@ -454,7 +454,7 @@ def main():
                     margin=dict(l=10, r=10, t=40, b=80)
                 )
 
-                st.plotly_chart(fig_heat, use_container_width=True)
+                st.plotly_chart(fig_heat, width='stretch')
             else:
                 st.warning("No hay datos suficientes para el heatmap.")
 

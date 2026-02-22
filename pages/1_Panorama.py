@@ -200,7 +200,7 @@ def main():
 
         if not df_tree.empty and df_tree['values'].sum() > 0:
             fig_tree = _crear_treemap_cached(df_tree, altura=500)
-            st.plotly_chart(fig_tree, use_container_width=True)
+            st.plotly_chart(fig_tree, width='stretch')
         else:
             st.warning("No hay datos de activos disponibles para esta fecha.")
 
@@ -226,7 +226,7 @@ def main():
                 ranking, x_col='valor_millones', y_col='cooperativa',
                 formato_valor="${:,.0f}M", altura=max(400, len(ranking) * 22)
             )
-            st.plotly_chart(fig_rank, use_container_width=True)
+            st.plotly_chart(fig_rank, width='stretch')
 
     st.markdown("---")
 
@@ -244,7 +244,7 @@ def main():
 
         if not df_tree_pasivos.empty and df_tree_pasivos['values'].sum() > 0:
             fig_tree_pas = _crear_treemap_cached(df_tree_pasivos, altura=500)
-            st.plotly_chart(fig_tree_pas, use_container_width=True)
+            st.plotly_chart(fig_tree_pas, width='stretch')
         else:
             st.warning("No hay datos de pasivos disponibles para esta fecha.")
 
@@ -264,7 +264,7 @@ def main():
                 ranking_pasivos, x_col='valor_millones', y_col='cooperativa',
                 formato_valor="${:,.0f}M", altura=max(400, len(ranking_pasivos) * 22)
             )
-            st.plotly_chart(fig_rank_pas, use_container_width=True)
+            st.plotly_chart(fig_rank_pas, width='stretch')
 
     st.markdown("---")
 
@@ -291,7 +291,7 @@ def main():
 
             if not df_crec_cartera.empty:
                 fig_cartera = _crear_crecimiento_cached(df_crec_cartera, "Crecimiento Anual (%)")
-                st.plotly_chart(fig_cartera, use_container_width=True)
+                st.plotly_chart(fig_cartera, width='stretch')
             else:
                 st.info("Sin datos de crecimiento disponibles.")
         else:
@@ -310,7 +310,7 @@ def main():
 
             if not df_crec_depositos.empty:
                 fig_depositos = _crear_crecimiento_cached(df_crec_depositos, "Crecimiento Anual (%)")
-                st.plotly_chart(fig_depositos, use_container_width=True)
+                st.plotly_chart(fig_depositos, width='stretch')
             else:
                 st.info("Sin datos de crecimiento disponibles.")
         else:

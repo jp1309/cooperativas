@@ -273,7 +273,7 @@ def obtener_datos_heatmap_mensual(df_completo: pd.DataFrame, codigo: str, cooper
 
     # Calcular crecimiento YoY
     df_filtrado = df_filtrado.sort_values(['cooperativa', 'año', 'mes'])
-    df_filtrado['valor_ano_anterior'] = df_filtrado.groupby(['cooperativa', 'mes'])['valor_millones'].shift(1)
+    df_filtrado['valor_ano_anterior'] = df_filtrado.groupby(['cooperativa', 'mes'], observed=True)['valor_millones'].shift(1)
     df_filtrado['crecimiento_yoy'] = ((df_filtrado['valor_millones'] / df_filtrado['valor_ano_anterior']) - 1) * 100
 
     # Filtrar por rango de fechas
@@ -290,7 +290,8 @@ def obtener_datos_heatmap_mensual(df_completo: pd.DataFrame, codigo: str, cooper
         index='cooperativa',
         columns='fecha_str',
         values='crecimiento_yoy',
-        aggfunc='first'
+        aggfunc='first',
+        observed=True
     )
 
     # Ordenar cooperativas por valor del último período
@@ -328,7 +329,7 @@ def obtener_valores_cooperativas_mes(df: pd.DataFrame, codigo: str, fecha: pd.Ti
     if df_filtrado.empty:
         return pd.DataFrame()
 
-    resultado = df_filtrado.groupby('cooperativa', as_index=False).agg({
+    resultado = df_filtrado.groupby('cooperativa', as_index=False, observed=True).agg({
         'valor_millones': 'first',
         'segmento': 'first'
     })
@@ -617,7 +618,7 @@ def main():
             titulo_cuenta = cuenta_info if len(str(cuenta_info)) < 50 else str(cuenta_info)[:47] + "..."
 
             fig_evol = _crear_evolucion_cached(series_data, f"Evolución: {titulo_cuenta}", y_title, incluir_sistema_data)
-            st.plotly_chart(fig_evol, use_container_width=True)
+            st.plotly_chart(fig_evol, width='stretch')
         else:
             st.info("Selecciona al menos una cooperativa para visualizar.")
 
@@ -787,7 +788,7 @@ def main():
                 f"Variación YoY: {titulo_cuenta_heat}",
                 max(400, len(heatmap_data) * 22)
             )
-            st.plotly_chart(fig_heat, use_container_width=True)
+            st.plotly_chart(fig_heat, width='stretch')
         else:
             st.warning("No hay datos suficientes para el heatmap.")
 
@@ -940,7 +941,7 @@ def main():
             f"Ranking: {titulo_cuenta_rank} ({MESES[mes_r]} {ano_r})",
             altura
         )
-        st.plotly_chart(fig_ranking, use_container_width=True)
+        st.plotly_chart(fig_ranking, width='stretch')
 
         # Estadísticas
         col_s1, col_s2, col_s3 = st.columns(3)

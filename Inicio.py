@@ -399,16 +399,16 @@ def main():
     col_a, col_b, col_c, col_d = st.columns(4)
 
     with col_a:
-        st.page_link("pages/1_Panorama.py", label="📊 Panorama", use_container_width=True)
+        st.page_link("pages/1_Panorama.py", label="📊 Panorama", width='stretch')
 
     with col_b:
-        st.page_link("pages/2_Balance_General.py", label="⚖️ Balance General", use_container_width=True)
+        st.page_link("pages/2_Balance_General.py", label="⚖️ Balance General", width='stretch')
 
     with col_c:
-        st.page_link("pages/3_Perdidas_Ganancias.py", label="💰 Pérdidas y Ganancias", use_container_width=True)
+        st.page_link("pages/3_Perdidas_Ganancias.py", label="💰 Pérdidas y Ganancias", width='stretch')
 
     with col_d:
-        st.page_link("pages/4_CAMEL.py", label="📈 Indicadores CAMEL", use_container_width=True)
+        st.page_link("pages/4_CAMEL.py", label="📈 Indicadores CAMEL", width='stretch')
 
     st.markdown("---")
 
