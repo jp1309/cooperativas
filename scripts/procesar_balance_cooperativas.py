@@ -76,9 +76,17 @@ def leer_archivo_desde_zip(zip_path: Path) -> pd.DataFrame:
     año_archivo = int(zip_path.name.split('-')[0].split('_')[0])
 
     with zipfile.ZipFile(zip_path, 'r') as zf:
-        # Obtener nombre del archivo interno
+        # Obtener nombre del archivo interno (cualquier extensión tabular)
         archivos = zf.namelist()
-        archivo_datos = [f for f in archivos if f.endswith(('.csv', '.txt'))][0]
+        print(f"    Archivos internos: {archivos}")
+        # Priorizar csv/txt, pero aceptar cualquier archivo no-directorio como fallback
+        candidatos = [f for f in archivos if f.endswith(('.csv', '.txt', '.CSV', '.TXT'))]
+        if not candidatos:
+            candidatos = [f for f in archivos if not f.endswith('/') and '.' in f]
+        if not candidatos:
+            candidatos = [f for f in archivos if not f.endswith('/')]
+        archivo_datos = candidatos[0]
+        print(f"    Leyendo: {archivo_datos}")
 
         # Leer contenido
         with zf.open(archivo_datos) as f:
@@ -152,7 +160,12 @@ def procesar_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def generar_balance_parquet():
-    """Genera el archivo balance.parquet consolidado."""
+    """Genera el archivo balance.parquet consolidado.
+
+    Modo incremental: si ya existe balance.parquet, carga los datos históricos
+    desde él y solo procesa los ZIPs que contengan meses nuevos. Esto permite
+    correr el ETL en GitHub Actions sin necesidad de tener todos los ZIPs históricos.
+    """
 
     print("=" * 60)
     print("PIPELINE ETL - BALANCES DE COOPERATIVAS")
@@ -161,24 +174,67 @@ def generar_balance_parquet():
     # Crear directorio de salida si no existe
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Buscar todos los ZIPs
+    # --- Modo incremental: cargar parquet existente si está disponible ---
+    output_path = OUTPUT_DIR / "balance.parquet"
+    df_historico = None
+    fecha_max_existente = None
+
+    if output_path.exists():
+        print("\n[INCREMENTAL] Cargando balance.parquet existente...")
+        df_historico = pd.read_parquet(output_path)
+        fecha_max_existente = df_historico['fecha'].max()
+        print(f"  Datos existentes hasta: {fecha_max_existente.strftime('%Y-%m')}")
+        print(f"  Registros existentes: {len(df_historico):,}")
+
+    # Buscar todos los ZIPs disponibles
     zips = sorted(BALANCES_DIR.glob("*.zip"))
     print(f"\nArchivos ZIP encontrados: {len(zips)}")
 
-    # Procesar cada ZIP
+    # En modo incremental, solo procesar ZIPs que puedan tener datos nuevos
+    if fecha_max_existente is not None and len(zips) > 0:
+        # Filtrar: solo ZIPs del año de fecha_max en adelante
+        # (el ZIP del año corriente puede tener meses nuevos)
+        año_min = fecha_max_existente.year
+        zips_nuevos = [z for z in zips if int(z.name.split('-')[0].split('_')[0]) >= año_min]
+        if len(zips_nuevos) < len(zips):
+            print(f"  [INCREMENTAL] Procesando solo {len(zips_nuevos)} ZIP(s) con datos potencialmente nuevos")
+        zips = zips_nuevos
+
+    # Procesar cada ZIP seleccionado
     dataframes = []
     for zip_path in zips:
         try:
             df = leer_archivo_desde_zip(zip_path)
             df = procesar_dataframe(df)
+            # En modo incremental, descartar fechas que ya están en el parquet existente
+            if fecha_max_existente is not None:
+                df_nuevo = df[df['fecha'] > fecha_max_existente]
+                if len(df_nuevo) == 0:
+                    print(f"    -> Sin datos nuevos (todo hasta {fecha_max_existente.strftime('%Y-%m')})")
+                    continue
+                print(f"    -> {len(df_nuevo):,} registros nuevos (de {len(df):,} totales en el ZIP)")
+                df = df_nuevo
+            else:
+                print(f"    -> {len(df):,} registros")
             dataframes.append(df)
-            print(f"    -> {len(df):,} registros")
         except Exception as e:
             print(f"    ERROR: {e}")
 
-    # Concatenar todos los DataFrames
-    print("\nConsolidando datos...")
-    df_final = pd.concat(dataframes, ignore_index=True)
+    # Combinar datos históricos con los nuevos
+    if df_historico is not None and len(dataframes) > 0:
+        print("\nCombinando datos históricos con nuevos...")
+        # Restaurar categorías a strings para poder concatenar
+        for col in ['segmento', 'cooperativa', 'codigo', 'cuenta']:
+            if col in df_historico.columns:
+                df_historico[col] = df_historico[col].astype(str)
+        df_nuevos = pd.concat(dataframes, ignore_index=True)
+        df_final = pd.concat([df_historico, df_nuevos], ignore_index=True)
+    elif df_historico is not None and len(dataframes) == 0:
+        print("\nNo hay datos nuevos que agregar. El parquet ya está actualizado.")
+        df_final = df_historico
+    else:
+        print("\nConsolidando datos...")
+        df_final = pd.concat(dataframes, ignore_index=True)
 
     # Unificar segmento: cada cooperativa toma el segmento de su último dato
     print("Unificando segmentos...")
@@ -219,7 +275,6 @@ def generar_balance_parquet():
     print(f"Cuentas únicas: {df_final['codigo'].nunique()}")
 
     # Guardar parquet
-    output_path = OUTPUT_DIR / "balance.parquet"
     df_final.to_parquet(output_path, engine='pyarrow', compression='snappy')
 
     size_mb = output_path.stat().st_size / (1024 * 1024)
