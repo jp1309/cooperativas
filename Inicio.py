@@ -196,7 +196,7 @@ def main():
     st.markdown("""
         <div class="main-header">
             <h1>🏦 Radar Cooperativo Ecuador</h1>
-            <p>Análisis Financiero del Sistema Cooperativo | Datos oficiales SEPS (2018-2025)</p>
+            <p>Análisis Financiero del Sistema Cooperativo | Datos oficiales SEPS (2018-2026)</p>
         </div>
     """, unsafe_allow_html=True)
 
