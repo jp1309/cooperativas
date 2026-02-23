@@ -67,6 +67,9 @@ jobs:
       - name: Generar datos pre-agregados
         run: python scripts/generar_agregados.py
 
+      - name: Procesar indicadores raw (base para PyG y CAMEL)
+        run: python scripts/procesar_indicadores.py
+
       - name: Procesar PyG
         run: python scripts/procesar_pyg.py
 

@@ -238,6 +238,15 @@ def main():
     if backup.exists():
         backup.unlink()
 
+    # Copiar ZIP también a indicadores/ con nombre estándar.
+    # El mismo ZIP contiene los XLSM usados por procesar_camel.py y procesar_pyg.py.
+    import shutil
+    nombre_zip_ind = nombre_zip_indicadores(anio)
+    destino_ind = INDICADORES_DIR / nombre_zip_ind
+    print(f"\n  Copiando ZIP a indicadores/{nombre_zip_ind} ...")
+    shutil.copy2(destino_zip, destino_ind)
+    print(f"  Copia completada: {destino_ind.stat().st_size / 1024 / 1024:.1f} MB")
+
     print("\n" + "=" * 60)
     print(f"DESCARGA COMPLETADA: {nombre_zip}")
     print("Proceder con el pipeline ETL.")
