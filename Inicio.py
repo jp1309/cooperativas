@@ -85,6 +85,9 @@ st.markdown("""
     /* Sidebar */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #f7fafc 0%, #edf2f7 100%);
+        min-width: 220px !important;
+        max-width: 220px !important;
+        width: 220px !important;
     }
 
     /* Ocultar elementos de Streamlit */
