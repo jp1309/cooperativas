@@ -12,7 +12,8 @@ import sys
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from utils.data_loader import cargar_balance, obtener_fechas_disponibles, obtener_segmentos_disponibles, obtener_top_cooperativas
+from utils.data_loader import (cargar_balance, obtener_fechas_disponibles, obtener_segmentos_disponibles,
+                               obtener_top_cooperativas, obtener_ranking_rapido)
 from config.indicator_mapping import obtener_color_cooperativa
 
 # =============================================================================
@@ -182,7 +183,7 @@ def _obtener_series_batch(df_evol_hash, cooperativas, codigo, modo_viz, serie_si
 # FUNCIONES DE DATOS
 # =============================================================================
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def obtener_jerarquia_cuentas(df: pd.DataFrame) -> dict:
     """Construye un diccionario jerárquico de cuentas."""
     cuentas = df[['codigo', 'cuenta']].drop_duplicates()
@@ -369,14 +370,17 @@ def main():
         st.info("Ejecuta primero el script de procesamiento: `python scripts/procesar_balance_cooperativas.py`")
         return
 
-    # Lista de cooperativas y fechas
-    cooperativas = sorted(df_balance['cooperativa'].unique().tolist())
-    fechas = obtener_fechas_disponibles(df_balance)
-    segmentos = ["Todos"] + obtener_segmentos_disponibles(df_balance)
+    # Lista de cooperativas y fechas — usar funciones rápidas pre-agregadas
+    from utils.data_loader import (obtener_fechas_disponibles_rapido,
+                                   obtener_segmentos_disponibles_rapido,
+                                   obtener_cooperativas_por_segmento)
+    cooperativas = obtener_cooperativas_por_segmento("Todos")
+    fechas = obtener_fechas_disponibles_rapido()
+    segmentos = ["Todos"] + obtener_segmentos_disponibles_rapido()
 
     # Rango de fechas disponibles
-    fecha_min = df_balance['fecha'].min()
-    fecha_max = df_balance['fecha'].max()
+    fecha_min = calidad['fecha_min']
+    fecha_max = calidad['fecha_max']
 
     # ==========================================================================
     # SIDEBAR
@@ -397,11 +401,12 @@ def main():
     st.sidebar.markdown(f"**Datos disponibles:** {fecha_min.strftime('%b %Y')} - {fecha_max.strftime('%b %Y')}")
     st.sidebar.markdown(f"**Cooperativas:** {len(cooperativas)}")
 
-    # Obtener top cooperativas para defaults
-    top_cooperativas_default = obtener_top_cooperativas(
-        df_balance, fecha_max, '1', top_n=5,
-        segmento=segmento_global if segmento_global != "Todos" else None
+    # Obtener top cooperativas para defaults — usar pre-agregados (rápido)
+    df_ranking_default = obtener_ranking_rapido(
+        fecha_max, '1', top_n=5,
+        segmento=segmento_global if segmento_global != "Todos" else "Todos"
     )
+    top_cooperativas_default = df_ranking_default['cooperativa'].tolist() if not df_ranking_default.empty else []
 
     # ==========================================================================
     # SECCION 1: EVOLUCION COMPARATIVA
@@ -504,11 +509,9 @@ def main():
     # Selector de cooperativas
     st.markdown("**Cooperativas a Comparar:**")
 
-    # Filtrar cooperativas por segmento si aplica
+    # Filtrar cooperativas por segmento si aplica — usar pre-agregados
     if segmento_global != "Todos":
-        cooperativas_filtradas = sorted(
-            df_balance[df_balance['segmento'] == segmento_global]['cooperativa'].unique().tolist()
-        )
+        cooperativas_filtradas = obtener_cooperativas_por_segmento(segmento_global)
     else:
         cooperativas_filtradas = cooperativas
 
@@ -731,18 +734,16 @@ def main():
 
     # Obtener top cooperativas
     if top_n_heat == 0:
-        # Todas las cooperativas del segmento
-        if segmento_global != "Todos":
-            top_cooperativas_heat = sorted(
-                df_balance[df_balance['segmento'] == segmento_global]['cooperativa'].unique().tolist()
-            )
-        else:
-            top_cooperativas_heat = sorted(df_balance['cooperativa'].unique().tolist())
-    else:
-        top_cooperativas_heat = obtener_top_cooperativas(
-            df_balance, fecha_max, codigo_cuenta_heat, top_n=top_n_heat,
-            segmento=segmento_global if segmento_global != "Todos" else None
+        # Todas las cooperativas del segmento — usar pre-agregados
+        top_cooperativas_heat = obtener_cooperativas_por_segmento(
+            segmento_global if segmento_global != "Todos" else "Todos"
         )
+    else:
+        df_rank_heat = obtener_ranking_rapido(
+            fecha_max, codigo_cuenta_heat, top_n=top_n_heat,
+            segmento=segmento_global if segmento_global != "Todos" else "Todos"
+        )
+        top_cooperativas_heat = df_rank_heat['cooperativa'].tolist() if not df_rank_heat.empty else []
 
     # Filtros de tiempo
     col_heat_chart, col_heat_tiempo = st.columns([4, 1])
