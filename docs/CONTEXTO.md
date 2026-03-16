@@ -323,6 +323,64 @@ Optimizaciones aplicadas:
 ### Truncamiento de nombres largos
 Función `truncar_nombre(n, max_len=30)` en `4_CAMEL.py` mantiene inicio y final del nombre para diferenciar cooperativas con prefijos similares (especialmente mutualistas). Se aplica en ranking y heatmap.
 
+## Requisitos críticos para la automatización
+
+Estos requisitos deben cumplirse para que GitHub Actions funcione. Si alguno falla, la actualización automática se detiene silenciosamente.
+
+### 1. Branch default debe ser `main`
+GitHub Actions **solo ejecuta cron schedules desde el branch default**. Si el default se cambia a otro branch, el workflow nunca se ejecutará automáticamente.
+
+**Verificar:**
+```bash
+gh api repos/jp1309/cooperativas --jq .default_branch
+# Debe devolver: main
+```
+
+**Corregir si es necesario:**
+```bash
+gh api repos/jp1309/cooperativas --method PATCH -f default_branch=main
+```
+
+### 2. Permisos del workflow
+El workflow necesita `permissions: contents: write` en `actualizar_datos.yml`. Sin esto, la descarga y procesamiento funcionan pero `git push` falla con `Permission denied`.
+
+### 3. URL del portal SEPS
+La URL del portal es: `https://estadisticas.seps.gob.ec/index.php/estadisticas-sfps/`
+El script busca enlaces con `download_id` en la sección "Estados Financieros Mensuales".
+
+### 4. Streamlit Cloud debe apuntar a `main`
+Verificar en https://share.streamlit.io que la app apunte al branch `main` del repo `jp1309/cooperativas`.
+
+## Troubleshooting de automatización
+
+### El workflow no se ejecuta automáticamente
+1. Verificar que el branch default sea `main` (ver arriba)
+2. Verificar que `.github/workflows/actualizar_datos.yml` exista en `main`
+3. Revisar en https://github.com/jp1309/cooperativas/actions si el workflow aparece
+
+### Error: "Permission denied" en git push
+- Verificar que el workflow tenga `permissions: contents: write`
+
+### Los datos no se actualizan al mes esperado
+- La SEPS publica datos con retraso variable. El workflow reintenta los días 15, 18, 20, 22
+- Verificar si el ZIP descargado contiene el mes nuevo revisando logs en GitHub Actions
+- El script descarga el ZIP del año completo; si la SEPS no incluyó el mes nuevo, los datos no cambian
+
+### Ejecutar manualmente desde CLI
+```bash
+# Disparar workflow
+gh workflow run "Actualizar datos SEPS" --repo jp1309/cooperativas
+
+# Ver estado
+gh run list --repo jp1309/cooperativas --limit=3
+
+# Ver logs del último run
+gh run view $(gh run list --repo jp1309/cooperativas --limit=1 --json databaseId -q '.[0].databaseId') --log
+```
+
+### Incidente marzo 2026 en proyecto bancos (evitar aquí)
+El workflow de bancos no se ejecutó durante 1 mes porque el branch default era `master` en lugar de `main`. Cooperativas no tuvo este problema porque se configuró correctamente desde el inicio, pero hay que verificar periódicamente que el default branch no cambie.
+
 ## Errores previos a evitar
 - Trabajar fuera de `cooperativas/`.
 - Modificar archivos del proyecto de bancos.
