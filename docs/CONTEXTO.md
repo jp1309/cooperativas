@@ -381,6 +381,12 @@ gh run view $(gh run list --repo jp1309/cooperativas --limit=1 --json databaseId
 ### Incidente marzo 2026 en proyecto bancos (evitar aquí)
 El workflow de bancos no se ejecutó durante 1 mes porque el branch default era `master` en lugar de `main`. Cooperativas no tuvo este problema porque se configuró correctamente desde el inicio, pero hay que verificar periódicamente que el default branch no cambie.
 
+### Incidente mayo 2026 en proyecto bancos (cooperativas NO tiene este bug)
+**Síntoma:** La app mostraba marzo cuando debería mostrar abril.
+**Causa raíz en bancos:** `actualizar_datos.py` guardaba en `update_status.json` el *período objetivo* sin verificar si el parquet realmente cambió. Cuando el portal no publicó el mes nuevo, procesaba sin cambios y marcaba el mes como "descargado". Los reintentos posteriores se saltaban todos.
+**Por qué cooperativas no tiene este bug:** `descargar_datos_seps.py` verifica `fecha_max` leyendo directamente `metadata.json`, que se genera desde `df_final['fecha'].max()` en `procesar_balance_cooperativas.py` — el valor real del parquet, no el período objetivo.
+**Invariante a mantener:** Si alguna vez se modifica la lógica de `hay_datos_nuevos()` en `descargar_datos_seps.py`, asegurarse de que siempre compare contra la `fecha_max` real del parquet generado, nunca contra un período calculado a partir de la fecha del sistema.
+
 ## Errores previos a evitar
 - Trabajar fuera de `cooperativas/`.
 - Modificar archivos del proyecto de bancos.
