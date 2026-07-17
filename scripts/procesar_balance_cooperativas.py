@@ -368,10 +368,11 @@ def generar_balance_parquet():
     # Combinar datos históricos con los nuevos
     if df_historico is not None and len(dataframes) > 0:
         print("\nCombinando datos históricos con nuevos...")
-        # Restaurar categorías a strings para poder concatenar
+        # Pasar categorías a object sin materializar arreglos Unicode gigantes.
+        # astype(str) llegó a requerir >6 GB para 24 millones de filas.
         for col in ['segmento', 'cooperativa', 'codigo', 'cuenta']:
             if col in df_historico.columns:
-                df_historico[col] = df_historico[col].astype(str)
+                df_historico[col] = df_historico[col].astype('object')
         df_nuevos = pd.concat(dataframes, ignore_index=True)
         df_final = pd.concat([df_historico, df_nuevos], ignore_index=True)
     elif df_historico is not None and len(dataframes) == 0:

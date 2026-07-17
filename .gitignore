@@ -4,8 +4,6 @@ indicadores/
 
 # Archivos intermedios de procesamiento (no necesarios en producción)
 master_data/indicadores_raw.parquet
-master_data/metadata_agregados.json
-master_data/metadata_indicadores.json
 
 # Python
 __pycache__/

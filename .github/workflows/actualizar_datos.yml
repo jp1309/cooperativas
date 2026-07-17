@@ -38,54 +38,61 @@ jobs:
       - name: Instalar dependencias
         run: |
           pip install --upgrade pip
-          pip install pandas>=2.0.0 pyarrow>=12.0.0 numpy>=1.24.0
-          pip install requests beautifulsoup4 openpyxl
+          pip install "pandas==2.3.0" "pyarrow==23.0.0" "numpy==2.3.1"
+          pip install "requests>=2.31.0" "beautifulsoup4>=4.12.0" "openpyxl==3.1.5"
 
       # 4. Descargar datos nuevos de la SEPS
       - name: Descargar datos de la SEPS
         id: descarga
         run: |
-          python scripts/descargar_datos_seps.py
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
-        continue-on-error: true
+          FECHA_ANTERIOR=$(python -c 'import json; print(json.load(open("master_data/metadata.json"))["fecha_max"])')
+          echo "fecha_anterior=${FECHA_ANTERIOR}" >> "$GITHUB_OUTPUT"
 
-      # 5. Diferenciar entre "sin datos nuevos" (exit 2, éxito) y error real (exit 1)
-      - name: Verificar resultado de descarga
-        run: |
-          EXIT_CODE="${{ steps.descarga.outputs.exit_code }}"
-          if [ "$EXIT_CODE" = "2" ]; then
-            echo "Los datos ya están actualizados. Nada que hacer."
-            exit 0
-          elif [ "${{ steps.descarga.outcome }}" = "failure" ]; then
-            echo "ERROR: La descarga falló (exit code: $EXIT_CODE)."
-            echo "Revisar los logs del paso anterior para más detalles."
-            exit 1
+          set +e
+          python scripts/descargar_datos_seps.py
+          EXIT_CODE=$?
+          set -e
+
+          if [ "$EXIT_CODE" -eq 0 ]; then
+            echo "datos_nuevos=true" >> "$GITHUB_OUTPUT"
+          elif [ "$EXIT_CODE" -eq 2 ]; then
+            echo "datos_nuevos=false" >> "$GITHUB_OUTPUT"
+            echo "La fuente todavía no contiene un mes nuevo. Nada que publicar."
+          else
+            echo "La descarga o validación falló con código ${EXIT_CODE}."
+            exit "$EXIT_CODE"
           fi
 
       # 6. Ejecutar pipeline ETL completo (solo si hubo descarga exitosa)
       - name: Procesar Balance General
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: python scripts/procesar_balance_cooperativas.py
 
       - name: Generar datos pre-agregados
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: python scripts/generar_agregados.py
 
       - name: Procesar indicadores raw (base para PyG y CAMEL)
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: python scripts/procesar_indicadores.py
 
       - name: Procesar PyG
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: python scripts/procesar_pyg.py
 
       - name: Procesar indicadores CAMEL
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: python scripts/procesar_camel.py
+
+      - name: Validar avance y preservación histórica
+        if: steps.descarga.outputs.datos_nuevos == 'true'
+        run: >-
+          python scripts/validar_actualizacion.py
+          --fecha-anterior "${{ steps.descarga.outputs.fecha_anterior }}"
 
       # 7. Verificar tamaño de parquet (alerta si se acerca al límite de 100 MB)
       - name: Verificar tamaño de archivos
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: |
           echo "=== Tamaño de archivos generados ==="
           ls -lh master_data/*.parquet master_data/metadata*.json 2>/dev/null || true
@@ -98,16 +105,21 @@ jobs:
 
       # 8. Configurar git y hacer commit + push
       - name: Configurar git
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Commit y push de datos actualizados
-        if: steps.descarga.outcome == 'success'
+        if: steps.descarga.outputs.datos_nuevos == 'true'
         run: |
           # Verificar si hay cambios
-          git add master_data/*.parquet master_data/metadata.json || true
+          git add \
+            master_data/balance.parquet \
+            master_data/pyg.parquet \
+            master_data/indicadores.parquet \
+            master_data/agg_*.parquet \
+            master_data/metadata*.json
 
           if git diff --cached --quiet; then
             echo "No hay cambios en los datos. Nada que commitear."

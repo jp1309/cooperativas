@@ -16,8 +16,14 @@ import sys
 import json
 import re
 import requests
+import shutil
 from pathlib import Path
 from datetime import datetime
+
+try:
+    from seps_zip import inspeccionar_zip_seps
+except ModuleNotFoundError:  # Importación como módulo desde tests/herramientas
+    from scripts.seps_zip import inspeccionar_zip_seps
 
 try:
     from bs4 import BeautifulSoup
@@ -45,44 +51,31 @@ HEADERS = {
 }
 
 
-def obtener_fecha_actual_datos():
+def obtener_fecha_actual_datos() -> datetime | None:
     """Lee metadata.json para saber hasta qué fecha están los datos actuales."""
     if not METADATA_PATH.exists():
         return None
     with open(METADATA_PATH, "r", encoding="utf-8") as f:
         meta = json.load(f)
-    return meta.get("fecha_max")  # ej: "2025-12-31"
-
-
-def scrape_download_id(anio: int) -> str | None:
-    """
-    Scrapea la página de la SEPS y extrae el download_id para el año dado.
-
-    Busca dentro del bloque "Estados Financieros Mensuales" el enlace
-    cuyo texto sea el año indicado (ej: "2026").
-    """
-    print(f"  Accediendo a {URL_SEPS} ...")
-    try:
-        resp = requests.get(URL_SEPS, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        print(f"  ERROR al acceder al portal SEPS: {e}")
+    fecha_max = meta.get("fecha_max")
+    if not fecha_max:
         return None
+    return datetime.fromisoformat(fecha_max.split("T")[0])
 
-    soup = BeautifulSoup(resp.text, "html.parser")
 
+def extraer_download_id(html: str, anio: int) -> str | None:
+    """Extrae el enlace anual únicamente del panel financiero mensual."""
+    soup = BeautifulSoup(html, "html.parser")
     # Buscar el h5 "Estados Financieros Mensuales"
     seccion = None
     for h5 in soup.find_all("h5"):
         if "estados financieros mensuales" in h5.get_text(strip=True).lower():
-            seccion = h5.find_next_sibling("div")
+            panel = h5.find_parent("div", class_="panel")
+            seccion = panel if panel is not None else h5.parent
             break
 
     if seccion is None:
-        # Fallback: buscar directamente cualquier enlace con el año en el texto
-        print("  Advertencia: no se encontró la sección 'Estados Financieros Mensuales'.")
-        print("  Intentando búsqueda general de enlaces...")
-        seccion = soup
+        return None
 
     # Buscar enlace con download_id cuyo texto sea el año
     anio_str = str(anio)
@@ -93,11 +86,27 @@ def scrape_download_id(anio: int) -> str | None:
             # Extraer el download_id
             match = re.search(r"download_id=(\d+)", href)
             if match:
-                download_id = match.group(1)
-                print(f"  Encontrado: año {anio_str} → download_id={download_id}")
-                return download_id
+                return match.group(1)
 
-    print(f"  No se encontró enlace de descarga para el año {anio_str}.")
+    return None
+
+
+def scrape_download_id(anio: int) -> str | None:
+    """Consulta el portal SEPS y obtiene el ID del ZIP financiero mensual."""
+    print(f"  Accediendo a {URL_SEPS} ...")
+    try:
+        resp = requests.get(URL_SEPS, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  ERROR al acceder al portal SEPS: {e}")
+        return None
+
+    download_id = extraer_download_id(resp.text, anio)
+    if download_id:
+        print(f"  Encontrado: año {anio} -> download_id={download_id}")
+        return download_id
+
+    print(f"  No se encontró enlace mensual de descarga para el año {anio}.")
     return None
 
 
@@ -144,11 +153,9 @@ def hay_datos_nuevos(anio: int, mes_actual: int) -> bool:
     Verifica si los datos actuales ya incluyen el mes anterior al mes corriente.
     Si los datos llegan hasta el mes pasado, no hay nada nuevo que descargar.
     """
-    fecha_max_str = obtener_fecha_actual_datos()
-    if fecha_max_str is None:
+    fecha_max = obtener_fecha_actual_datos()
+    if fecha_max is None:
         return True  # Sin metadata, asumir que hay datos nuevos
-
-    fecha_max = datetime.fromisoformat(fecha_max_str.split("T")[0])
     mes_esperado = mes_actual - 1 if mes_actual > 1 else 12
     anio_esperado = anio if mes_actual > 1 else anio - 1
 
@@ -212,39 +219,50 @@ def main():
         print("Puede que la SEPS haya cambiado la estructura de su web.")
         sys.exit(1)
 
-    # Descarga del ZIP de balances
+    # Descargar primero a un temporal. La URL anual de la SEPS permanece
+    # estable aunque su contenido todavía corresponda al mes anterior.
     print(f"\n[3/3] Descargando ZIP de Estados Financieros Mensuales {anio}...")
     nombre_zip = nombre_zip_balance(anio)
     destino_zip = BALANCES_DIR / nombre_zip
+    destino_temporal = BALANCES_DIR / f".{nombre_zip}.tmp"
+    destino_temporal.unlink(missing_ok=True)
 
-    # Si el ZIP ya existe, hacer backup antes de sobreescribir
-    if destino_zip.exists():
-        backup = destino_zip.with_suffix(".zip.bak")
-        destino_zip.rename(backup)
-        print(f"  Backup del ZIP anterior guardado en: {backup.name}")
-
-    ok = descargar_zip(download_id, destino_zip)
+    ok = descargar_zip(download_id, destino_temporal)
 
     if not ok:
-        # Restaurar backup si falló
-        backup = destino_zip.with_suffix(".zip.bak")
-        if backup.exists():
-            backup.rename(destino_zip)
-            print("  Backup restaurado.")
         sys.exit(1)
 
-    # Limpiar backup si todo salió bien
-    backup = destino_zip.with_suffix(".zip.bak")
-    if backup.exists():
-        backup.unlink()
+    try:
+        inspeccion = inspeccionar_zip_seps(destino_temporal)
+    except (OSError, ValueError) as exc:
+        print(f"  ERROR: El ZIP descargado no superó la validación: {exc}")
+        destino_temporal.unlink(missing_ok=True)
+        sys.exit(1)
+
+    fecha_actual = obtener_fecha_actual_datos()
+    print(f"  Fecha de corte dentro del ZIP: {inspeccion.fecha_corte:%Y-%m-%d}")
+    print(f"  Segmentos validados: {len(inspeccion.segmentos)}")
+
+    if fecha_actual is not None and inspeccion.fecha_corte <= fecha_actual:
+        print(
+            "  La SEPS aún sirve un ZIP sin un mes posterior a "
+            f"{fecha_actual:%Y-%m-%d}."
+        )
+        destino_temporal.unlink(missing_ok=True)
+        print("\nSaliendo con código 2 (la fuente aún no avanzó).")
+        sys.exit(2)
+
+    # Reemplazo atómico: la fuente anterior queda intacta ante cualquier fallo.
+    destino_temporal.replace(destino_zip)
 
     # Copiar ZIP también a indicadores/ con nombre estándar.
     # El mismo ZIP contiene los XLSM usados por procesar_camel.py y procesar_pyg.py.
-    import shutil
     nombre_zip_ind = nombre_zip_indicadores(anio)
     destino_ind = INDICADORES_DIR / nombre_zip_ind
+    destino_ind_temporal = INDICADORES_DIR / f".{nombre_zip_ind}.tmp"
     print(f"\n  Copiando ZIP a indicadores/{nombre_zip_ind} ...")
-    shutil.copy2(destino_zip, destino_ind)
+    shutil.copy2(destino_zip, destino_ind_temporal)
+    destino_ind_temporal.replace(destino_ind)
     print(f"  Copia completada: {destino_ind.stat().st_size / 1024 / 1024:.1f} MB")
 
     print("\n" + "=" * 60)

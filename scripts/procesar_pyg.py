@@ -86,6 +86,50 @@ def normalizar_nombre_cooperativa(nombre: str) -> str:
     return nombre
 
 
+def combinar_historico_pyg(
+    df_fuente: pd.DataFrame,
+    output_path: Path,
+) -> pd.DataFrame:
+    """Reemplaza solo los meses presentes en la fuente y conserva el resto."""
+    if not output_path.exists():
+        return df_fuente.copy()
+
+    df_historico = pd.read_parquet(output_path)
+    columnas = [
+        'fecha', 'segmento', 'cooperativa', 'codigo', 'cuenta',
+        'valor_acumulado',
+    ]
+    faltantes = [col for col in columnas if col not in df_historico.columns]
+    if faltantes:
+        raise ValueError(
+            "pyg.parquet histórico no tiene las columnas requeridas: "
+            + ", ".join(faltantes)
+        )
+
+    df_historico = df_historico[columnas].rename(
+        columns={'valor_acumulado': 'valor'}
+    )
+    df_historico['ruc'] = pd.NA
+    df_historico['fecha'] = pd.to_datetime(df_historico['fecha'])
+
+    df_fuente = df_fuente.copy()
+    df_fuente['fecha'] = pd.to_datetime(df_fuente['fecha'])
+    fechas_reemplazo = df_fuente['fecha'].dropna().unique()
+    df_historico = df_historico[
+        ~df_historico['fecha'].isin(fechas_reemplazo)
+    ]
+
+    for col in ['segmento', 'cooperativa', 'codigo', 'cuenta']:
+        df_historico[col] = df_historico[col].astype('object')
+        df_fuente[col] = df_fuente[col].astype('object')
+
+    print(
+        "  Histórico PyG conservado: "
+        f"{len(df_historico):,} registros anteriores a los meses reemplazados"
+    )
+    return pd.concat([df_historico, df_fuente], ignore_index=True)
+
+
 def desacumular_valores(df: pd.DataFrame) -> pd.DataFrame:
     """
     Desacumula los valores para obtener el valor de cada mes individual.
@@ -146,14 +190,16 @@ def procesar_pyg():
     # Cargar datos originales desde indicadores_raw
     indicadores_path = MASTER_DATA_DIR / "indicadores_raw.parquet"
     if not indicadores_path.exists():
-        print(f"[ERROR] No se encontró {indicadores_path}")
-        return
+        raise FileNotFoundError(f"No se encontró {indicadores_path}")
 
     print(f"\nCargando: {indicadores_path}")
     df_ind = pd.read_parquet(indicadores_path)
 
     # Filtrar solo cuentas de PyG (4 y 5)
+    df_ind['codigo'] = df_ind['codigo'].astype(str)
     df = df_ind[df_ind['codigo'].str.startswith(('4', '5'))].copy()
+    if df.empty:
+        raise RuntimeError("El staging de indicadores no contiene cuentas PyG 4 o 5")
     print(f"Registros PyG (cuentas 4 y 5): {len(df):,}")
 
     # Normalizar nombres de cooperativas
@@ -167,6 +213,9 @@ def procesar_pyg():
 
     # Seleccionar columnas necesarias antes de agrupar
     df = df[['fecha', 'segmento', 'ruc', 'cooperativa', 'codigo', 'cuenta', 'valor']].copy()
+
+    output_path = MASTER_DATA_DIR / "pyg.parquet"
+    df = combinar_historico_pyg(df, output_path)
 
     # Agregar valores de cooperativas duplicadas (mismo fecha, codigo, cooperativa)
     # Usar reset_index para evitar problemas de memoria con categorías
@@ -240,7 +289,6 @@ def procesar_pyg():
     print(muestra.to_string())
 
     # Guardar
-    output_path = MASTER_DATA_DIR / "pyg.parquet"
     df_final.to_parquet(output_path, index=False)
 
     size_mb = output_path.stat().st_size / (1024 * 1024)

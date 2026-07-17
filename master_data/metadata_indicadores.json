@@ -1,0 +1,19 @@
+{
+  "fecha_procesamiento": "2026-07-17T19:14:35.859949",
+  "archivos_procesados": [
+    "2026-EEFF-MEN.zip"
+  ],
+  "registros_totales": 1503183,
+  "registros_pyg": 233565,
+  "fechas": {
+    "min": "2026-01-31 00:00:00",
+    "max": "2026-06-30 00:00:00"
+  },
+  "segmentos": [
+    "SEGMENTO 1 MUTUALISTA",
+    "SEGMENTO 1",
+    "SEGMENTO 2",
+    "SEGMENTO 3"
+  ],
+  "cooperativas": 212
+}

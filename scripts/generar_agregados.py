@@ -34,7 +34,8 @@ def main():
     df_codigos = df[df['codigo'].isin(codigos_principales)]
 
     metricas_sistema = df_codigos.groupby(
-        ['fecha', 'segmento', 'codigo']
+        ['fecha', 'segmento', 'codigo'],
+        observed=True,
     ).agg(
         valor_total=('valor', 'sum'),
         num_cooperativas=('cooperativa', 'nunique')
@@ -50,7 +51,8 @@ def main():
     print("\n[3/5] Generando rankings por cooperativa/fecha...")
 
     ranking_cooperativas = df_codigos.groupby(
-        ['fecha', 'segmento', 'cooperativa', 'codigo']
+        ['fecha', 'segmento', 'cooperativa', 'codigo'],
+        observed=True,
     ).agg(
         valor=('valor', 'sum')
     ).reset_index()
@@ -69,7 +71,8 @@ def main():
     df_serie = df[df['codigo'].isin(codigos_serie)]
 
     series_temporales = df_serie.groupby(
-        ['fecha', 'cooperativa', 'segmento', 'codigo', 'cuenta']
+        ['fecha', 'cooperativa', 'segmento', 'codigo', 'cuenta'],
+        observed=True,
     ).agg(
         valor=('valor', 'sum')
     ).reset_index()
@@ -87,7 +90,7 @@ def main():
     df_activos = df[df['codigo'] == '1'].copy()
 
     # Para cada cooperativa, tomar el registro con la fecha más reciente
-    idx_ultimo = df_activos.groupby('cooperativa')['fecha'].idxmax()
+    idx_ultimo = df_activos.groupby('cooperativa', observed=True)['fecha'].idxmax()
     df_ultima = df_activos.loc[idx_ultimo]
 
     catalogo = df_ultima[['cooperativa', 'segmento', 'valor']].copy()

@@ -19,6 +19,11 @@ from datetime import datetime
 import re
 import io
 
+try:
+    from seps_zip import seleccionar_zips_procesamiento
+except ModuleNotFoundError:
+    from scripts.seps_zip import seleccionar_zips_procesamiento
+
 # Rutas
 INDICADORES_DIR = Path(__file__).parent.parent / "indicadores"
 MASTER_DATA_DIR = Path(__file__).parent.parent / "master_data"
@@ -401,6 +406,42 @@ def procesar_xlsm_indicadores(xlsm_data: bytes, segmento: str) -> pd.DataFrame:
 # PROCESAMIENTO PRINCIPAL
 # =============================================================================
 
+
+def combinar_historico_camel(
+    df_fuente: pd.DataFrame,
+    output_path: Path,
+) -> pd.DataFrame:
+    """Reemplaza los meses del ZIP actual sin perder años anteriores."""
+    if not output_path.exists():
+        return df_fuente.copy()
+
+    df_historico = pd.read_parquet(output_path)
+    columnas = [
+        'cooperativa', 'segmento', 'fecha', 'codigo',
+        'indicador', 'valor', 'categoria',
+    ]
+    faltantes = [col for col in columnas if col not in df_historico.columns]
+    if faltantes:
+        raise ValueError(
+            "indicadores.parquet histórico no tiene las columnas requeridas: "
+            + ", ".join(faltantes)
+        )
+
+    df_historico = df_historico[columnas].copy()
+    df_historico['fecha'] = pd.to_datetime(df_historico['fecha'])
+    df_fuente = df_fuente.copy()
+    df_fuente['fecha'] = pd.to_datetime(df_fuente['fecha'])
+
+    fechas_reemplazo = df_fuente['fecha'].dropna().unique()
+    df_historico = df_historico[
+        ~df_historico['fecha'].isin(fechas_reemplazo)
+    ]
+    print(
+        "Histórico CAMEL conservado: "
+        f"{len(df_historico):,} registros anteriores a los meses reemplazados"
+    )
+    return pd.concat([df_historico, df_fuente], ignore_index=True)
+
 def procesar_todos_indicadores():
     """Procesa todos los archivos ZIP para extraer indicadores CAMEL."""
     print("=" * 70)
@@ -408,9 +449,15 @@ def procesar_todos_indicadores():
     print("=" * 70)
 
     todos_los_datos = []
-    archivos_zip = sorted(INDICADORES_DIR.glob("*.zip"))
+    output_path = MASTER_DATA_DIR / "indicadores.parquet"
+    archivos_zip = seleccionar_zips_procesamiento(
+        INDICADORES_DIR.glob("*.zip"),
+        incremental=output_path.exists(),
+    )
 
     print(f"\nArchivos ZIP encontrados: {len(archivos_zip)}")
+    if output_path.exists():
+        print("  Modo incremental: procesando únicamente el año más reciente")
 
     for zip_path in archivos_zip:
         print(f"\n[{zip_path.name}]")
@@ -440,15 +487,16 @@ def procesar_todos_indicadores():
             print(f"  [ERROR] Error procesando ZIP: {e}")
 
     if not todos_los_datos:
-        print("\n[ERROR] No se extrajeron datos")
-        return
+        raise RuntimeError("No se extrajeron indicadores CAMEL de los ZIP")
 
     # Consolidar
     print("\n" + "=" * 70)
     print("CONSOLIDANDO DATOS")
     print("=" * 70)
 
-    df_completo = pd.concat(todos_los_datos, ignore_index=True)
+    df_nuevo = pd.concat(todos_los_datos, ignore_index=True)
+    MASTER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    df_completo = combinar_historico_camel(df_nuevo, output_path)
     print(f"Total registros consolidados: {len(df_completo):,}")
 
     # Unificar segmento: cada cooperativa toma el segmento de su último dato
@@ -471,8 +519,6 @@ def procesar_todos_indicadores():
     print(f"Registros tras deduplicar: {len(df_completo):,}")
 
     # Guardar
-    MASTER_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = MASTER_DATA_DIR / "indicadores.parquet"
     df_completo.to_parquet(output_path, index=False)
     size_mb = output_path.stat().st_size / (1024 * 1024)
 

@@ -13,9 +13,9 @@ El dashboard cuenta con 4 modulos principales: panorama del sistema, estructura 
 ## Fuente de Datos
 
 - **Origen**: Superintendencia de Economia Popular y Solidaria (SEPS) - Catalogo Unico de Cuentas
-- **Periodo cubierto**: 2018-2025 (96 meses para balance, 72 meses para PyG/CAMEL)
+- **Periodo cubierto**: enero 2018-junio 2026 (102 meses para balance; 78 meses para PyG/CAMEL)
 - **Instituciones**: 259 cooperativas unicas (Segmentos 1, 2, 3 y Mutualistas)
-- **Registros**: ~22.7 millones (balance) + ~2.1 millones (PyG) + ~550K (indicadores CAMEL)
+- **Registros**: 24.2 millones (balance) + 2.36 millones (PyG) + 603K (indicadores CAMEL)
 - **Formato**: Archivos Parquet optimizados con dtypes category para memoria eficiente
 
 ### Estructura de Datos
@@ -24,9 +24,9 @@ Archivos en `master_data/`:
 
 | Archivo | Tamano | Registros | Descripcion |
 |---------|--------|-----------|-------------|
-| `balance.parquet` | 78 MB | 22.7M | Balance General (Activos, Pasivos, Patrimonio) |
-| `pyg.parquet` | 17 MB | 2.1M | Estado de Resultados con suma movil 12 meses |
-| `indicadores.parquet` | 3.5 MB | 550K | 37 indicadores CAMEL oficiales en 7 categorias |
+| `balance.parquet` | 82 MB | 24.17M | Balance General (Activos, Pasivos, Patrimonio) |
+| `pyg.parquet` | 18 MB | 2.36M | Estado de Resultados con suma movil 12 meses |
+| `indicadores.parquet` | 3.7 MB | 603K | Indicadores CAMEL oficiales |
 | `agg_*.parquet` | 3.7 MB | - | Datos pre-agregados para consultas rapidas |
 | `metadata.json` | <1 KB | - | Metadatos de procesamiento |
 
@@ -134,11 +134,17 @@ python scripts/procesar_balance_cooperativas.py
 # 2. Generar datos pre-agregados para Panorama
 python scripts/generar_agregados.py
 
-# 3. Procesar PyG (desacumulacion + suma movil 12M)
+# 3. Extraer staging del ZIP reciente para PyG/CAMEL
+python scripts/procesar_indicadores.py
+
+# 4. Procesar PyG incremental (desacumulacion + suma movil 12M)
 python scripts/procesar_pyg.py
 
-# 4. Procesar indicadores CAMEL desde pivot cache XLSM
+# 5. Procesar indicadores CAMEL incremental desde pivot cache XLSM
 python scripts/procesar_camel.py
+
+# 6. Verificar fecha, consistencia entre salidas y preservacion historica
+python scripts/validar_actualizacion.py
 ```
 
 ### Optimizacion de memoria
@@ -155,6 +161,8 @@ Optimizaciones aplicadas:
 - Columnas `ruc` y `nivel` eliminadas (no usadas por la UI)
 - Columnas string (`codigo`, `cuenta`) almacenadas como `category` dtype
 - Carga selectiva de columnas con `pd.read_parquet(columns=...)`
+- `groupby(..., observed=True)` para evitar productos cartesianos de categorías
+- PyG y CAMEL reemplazan solo los meses incluidos en el ZIP reciente
 
 ## Instalacion y Uso
 

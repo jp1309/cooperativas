@@ -18,6 +18,11 @@ from datetime import datetime
 import re
 import io
 
+try:
+    from seps_zip import seleccionar_zips_procesamiento
+except ModuleNotFoundError:
+    from scripts.seps_zip import seleccionar_zips_procesamiento
+
 
 # Rutas
 INDICADORES_DIR = Path(__file__).parent.parent / "indicadores"
@@ -191,9 +196,14 @@ def procesar_todos_indicadores():
     print("=" * 70)
 
     todos_los_datos = []
-    archivos_zip = sorted(INDICADORES_DIR.glob("*.zip"))
+    archivos_zip = seleccionar_zips_procesamiento(
+        INDICADORES_DIR.glob("*.zip"),
+        incremental=(MASTER_DATA_DIR / "pyg.parquet").exists(),
+    )
 
     print(f"\nArchivos ZIP encontrados: {len(archivos_zip)}")
+    if (MASTER_DATA_DIR / "pyg.parquet").exists():
+        print("  Modo incremental: procesando únicamente el año más reciente")
 
     for zip_path in archivos_zip:
         print(f"\n[{zip_path.name}]")
@@ -234,8 +244,7 @@ def procesar_todos_indicadores():
             print(f"  [ERROR] Error procesando ZIP: {e}")
 
     if not todos_los_datos:
-        print("\n[ERROR] No se extrajeron datos")
-        return
+        raise RuntimeError("No se extrajeron datos de los ZIP de indicadores")
 
     # Combinar todos los DataFrames
     print("\n" + "=" * 70)
@@ -288,21 +297,8 @@ def procesar_todos_indicadores():
 
     MASTER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Guardar PyG
-    if not df_pyg.empty:
-        pyg_path = MASTER_DATA_DIR / "pyg.parquet"
-
-        # Seleccionar columnas relevantes
-        cols_pyg = ['fecha', 'segmento', 'ruc', 'cooperativa', 'codigo', 'cuenta', 'valor']
-        cols_pyg = [c for c in cols_pyg if c in df_pyg.columns]
-
-        df_pyg_final = df_pyg[cols_pyg].drop_duplicates()
-        df_pyg_final.to_parquet(pyg_path, index=False)
-
-        size_mb = pyg_path.stat().st_size / (1024 * 1024)
-        print(f"  pyg.parquet: {len(df_pyg_final):,} registros, {size_mb:.2f} MB")
-
-    # Guardar datos completos (para indicadores CAMEL)
+    # Guardar únicamente el staging raw. procesar_pyg.py lo fusiona con el
+    # histórico publicado; nunca se debe sobrescribir pyg.parquet desde aquí.
     indicadores_path = MASTER_DATA_DIR / "indicadores_raw.parquet"
     df_completo.to_parquet(indicadores_path, index=False)
     size_mb = indicadores_path.stat().st_size / (1024 * 1024)

@@ -36,15 +36,17 @@ cooperativas/
 │   ├── procesar_camel.py               # Pipeline ETL indicadores CAMEL desde pivot cache
 │   ├── procesar_indicadores.py         # Pipeline ETL balance/PyG desde XLSM (legacy)
 │   ├── generar_agregados.py            # Genera datos pre-agregados desde balance.parquet
-│   └── descargar_datos_seps.py         # Scraping y descarga automática del portal SEPS
+│   ├── descargar_datos_seps.py         # Scraping y descarga automática del portal SEPS
+│   ├── seps_zip.py                      # Inspección de fecha/segmentos del ZIP fuente
+│   └── validar_actualizacion.py         # Puerta de calidad antes del commit automático
 ├── .github/
 │   └── workflows/
 │       └── actualizar_datos.yml        # GitHub Actions: actualización automática mensual
 ├── master_data/
-│   ├── balance.parquet                 # 82 MB, 23M registros (optimizado: sin ruc/nivel, category dtypes)
-│   ├── pyg.parquet                     # 16 MB, PyG con valor_12m
-│   ├── indicadores.parquet             # ~3 MB, indicadores CAMEL oficiales
-│   ├── indicadores_raw.parquet         # Indicadores crudos extraídos de XLSM (legacy, no usado)
+│   ├── balance.parquet                 # 82 MB, 24.17M registros (sin ruc/nivel)
+│   ├── pyg.parquet                     # 18 MB, PyG incremental con valor_12m
+│   ├── indicadores.parquet             # 3.7 MB, indicadores CAMEL oficiales
+│   ├── indicadores_raw.parquet         # Staging temporal ignorado por git
 │   ├── agg_metricas_sistema.parquet    # 30 KB - KPIs rápidos
 │   ├── agg_ranking_cooperativas.parquet # 1.4 MB - Rankings y treemaps
 │   ├── agg_series_temporales.parquet   # 2.2 MB - Series temporales
@@ -65,27 +67,27 @@ cooperativas/
 ### Datos procesados
 
 #### balance.parquet (82 MB disco → ~500 MB RAM)
-- 23,003,634 registros (incluye enero 2026)
+- 24,169,638 registros (incluye junio 2026)
 - 259 cooperativas únicas
 - Columnas: fecha, segmento, cooperativa, codigo, cuenta, valor (todas category excepto fecha/valor)
 - Segmentos: SEGMENTO 1, SEGMENTO 2, SEGMENTO 3, SEGMENTO 1 MUTUALISTA
-- Período: Enero 2018 - Enero 2026 (97 meses)
+- Período: Enero 2018 - Junio 2026 (102 meses)
 - **Sin columnas ruc ni nivel** (eliminadas para reducir memoria, no usadas por UI)
 - Nombres de mutualistas unificados retroactivamente a `Mutualista X` en toda la historia
 
-#### pyg.parquet (17 MB disco → 79 MB RAM)
-- 2,126,296 registros
+#### pyg.parquet (18 MB disco)
+- 2,359,861 registros
 - 242 cooperativas únicas (normalizado LTDA)
 - Columnas: fecha, segmento, cooperativa, codigo, cuenta, valor_acumulado, valor_mes, valor_12m (todas category excepto fecha/valores)
-- Período: 2020-2025 (72 meses)
-- 75% de registros con valor_12m válido (primeros 11 meses de cada serie no tienen)
+- Período: Enero 2020 - Junio 2026 (78 meses)
+- 77.4% de registros con valor_12m válido
 - **Sin columna ruc** (eliminada para reducir memoria, no usada por UI)
 
 #### indicadores.parquet
-- ~550K registros
+- 603,312 registros
 - 231 cooperativas únicas
 - **37 indicadores CAMEL oficiales en 7 categorías**
-- Período: Enero 2020 - Diciembre 2025
+- Período: Enero 2020 - Junio 2026
 - Segmentos: SEGMENTO 1, SEGMENTO 2, SEGMENTO 3, SEGMENTO 1 MUTUALISTA
 - **Valores como ratios (0-1)**, multiplicar por 100 para porcentaje
 - Schema: cooperativa, segmento, fecha, codigo, indicador, valor, categoria
@@ -381,11 +383,11 @@ gh run view $(gh run list --repo jp1309/cooperativas --limit=1 --json databaseId
 ### Incidente marzo 2026 en proyecto bancos (evitar aquí)
 El workflow de bancos no se ejecutó durante 1 mes porque el branch default era `master` en lugar de `main`. Cooperativas no tuvo este problema porque se configuró correctamente desde el inicio, pero hay que verificar periódicamente que el default branch no cambie.
 
-### Incidente mayo 2026 en proyecto bancos (cooperativas NO tiene este bug)
+### Incidente mayo 2026 en bancos y variante detectada en cooperativas
 **Síntoma:** La app mostraba marzo cuando debería mostrar abril.
 **Causa raíz en bancos:** `actualizar_datos.py` guardaba en `update_status.json` el *período objetivo* sin verificar si el parquet realmente cambió. Cuando el portal no publicó el mes nuevo, procesaba sin cambios y marcaba el mes como "descargado". Los reintentos posteriores se saltaban todos.
-**Por qué cooperativas no tiene este bug:** `descargar_datos_seps.py` verifica `fecha_max` leyendo directamente `metadata.json`, que se genera desde `df_final['fecha'].max()` en `procesar_balance_cooperativas.py` — el valor real del parquet, no el período objetivo.
-**Invariante a mantener:** Si alguna vez se modifica la lógica de `hay_datos_nuevos()` en `descargar_datos_seps.py`, asegurarse de que siempre compare contra la `fecha_max` real del parquet generado, nunca contra un período calculado a partir de la fecha del sistema.
+**Variante hallada en cooperativas:** `fecha_max` sí provenía del Parquet real, pero cualquier ZIP descargado devolvía código 0 aunque todavía contuviera el mes anterior. Esto ejecutaba todo el ETL y generaba un commit de falso avance.
+**Invariante a mantener:** comparar siempre `fecha_max` real contra la fecha interna validada del ZIP; si la fuente no avanzó, devolver código 2, omitir ETL/commit y conservar el ZIP anterior.
 
 ## Errores previos a evitar
 - Trabajar fuera de `cooperativas/`.
@@ -433,6 +435,31 @@ El workflow de bancos no se ejecutó durante 1 mes porque el branch default era 
 **Regla**: Siempre agregar `observed=True` en cualquier `groupby()` o `pivot_table()` que opere sobre columnas con category dtype. En este proyecto: `cooperativa`, `segmento`, `codigo`, `cuenta`.
 
 ## Historial de cambios
+
+### 2026-07-17 - Pipeline mensual endurecido y datos junio 2026
+
+- **Causa del retraso**: el cron del 15 de julio descargó la URL anual estable,
+  pero la SEPS todavía servía el paquete de mayo. El workflow interpretó la
+  descarga como actualización y publicó nuevamente `fecha_max=2026-05-31`.
+- `descargar_datos_seps.py` ahora descarga a un temporal, exige los cuatro
+  segmentos, obtiene la fecha desde los nombres XLSM y solo reemplaza la fuente
+  local si `fecha_fuente > fecha_max_publicada`.
+- El código `2` significa fuente sin avance y GitHub Actions lo convierte en
+  `datos_nuevos=false`; los ETL y el commit quedan omitidos sin marcar fallo.
+- `validar_actualizacion.py` bloquea el push si Balance, agregados, PyG, CAMEL o
+  metadata no terminan exactamente en la fecha del ZIP, o si se perdió historia.
+- PyG y CAMEL son incrementales: reemplazan los meses contenidos en el ZIP más
+  reciente y conservan los años anteriores desde sus Parquet publicados.
+- `procesar_indicadores.py` ya no sobrescribe `pyg.parquet`; solo crea el staging
+  ignorado `indicadores_raw.parquet`. En modo incremental procesa únicamente el
+  año más reciente; un rebuild sin Parquet histórico procesa todos los ZIP.
+- `generar_agregados.py` usa `observed=True`; evita un producto cartesiano que
+  intentó crear 165 millones de filas y reservar 265 GiB.
+- Balance convierte categorías temporalmente a `object`, evitando una reserva
+  de 6.69 GiB causada por `astype(str)` durante la concatenación incremental.
+- Dependencias ETL fijadas y `openpyxl==3.1.5` declarado en `requirements.txt`.
+- Estado verificado: Balance 24,169,638 filas (2018-01 a 2026-06), PyG
+  2,359,861 (2020-01 a 2026-06) y CAMEL 603,312 (2020-01 a 2026-06).
 
 ### 2026-02-22 - Automatización mensual y datos enero 2026
 
