@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Tuple, Dict, Any, List, Optional
 import json
 
+from utils.file_version import version_archivo
+
 # Ruta base de datos
 MASTER_DATA_DIR = Path(__file__).parent.parent / "master_data"
 
@@ -19,48 +21,68 @@ MASTER_DATA_DIR = Path(__file__).parent.parent / "master_data"
 # CARGA DE DATOS PRE-AGREGADOS (RÁPIDO)
 # =============================================================================
 
-@st.cache_data(ttl=3600)
 def cargar_metricas_sistema() -> pd.DataFrame:
     """
     Carga métricas pre-agregadas por fecha/segmento/código.
     Archivo pequeño (~30KB) para KPIs rápidos.
     """
     filepath = MASTER_DATA_DIR / "agg_metricas_sistema.parquet"
+    return _cargar_metricas_sistema_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_metricas_sistema_cache(version) -> pd.DataFrame:
+    filepath = MASTER_DATA_DIR / "agg_metricas_sistema.parquet"
     if not filepath.exists():
         return pd.DataFrame()
     return pd.read_parquet(filepath)
 
 
-@st.cache_data(ttl=3600)
 def cargar_ranking_cooperativas() -> pd.DataFrame:
     """
     Carga ranking pre-agregado de cooperativas.
     Archivo mediano (~1.4MB) para rankings y treemaps.
     """
     filepath = MASTER_DATA_DIR / "agg_ranking_cooperativas.parquet"
+    return _cargar_ranking_cooperativas_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_ranking_cooperativas_cache(version) -> pd.DataFrame:
+    filepath = MASTER_DATA_DIR / "agg_ranking_cooperativas.parquet"
     if not filepath.exists():
         return pd.DataFrame()
     return pd.read_parquet(filepath)
 
 
-@st.cache_data(ttl=3600)
 def cargar_series_temporales() -> pd.DataFrame:
     """
     Carga series temporales pre-agregadas.
     Archivo mediano (~2MB) para gráficos de evolución.
     """
     filepath = MASTER_DATA_DIR / "agg_series_temporales.parquet"
+    return _cargar_series_temporales_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_series_temporales_cache(version) -> pd.DataFrame:
+    filepath = MASTER_DATA_DIR / "agg_series_temporales.parquet"
     if not filepath.exists():
         return pd.DataFrame()
     return pd.read_parquet(filepath)
 
 
-@st.cache_data(ttl=3600)
 def cargar_catalogo_cooperativas() -> pd.DataFrame:
     """
     Carga catálogo de cooperativas con ranking por activos.
     Archivo muy pequeño (~5KB).
     """
+    filepath = MASTER_DATA_DIR / "agg_catalogo_cooperativas.parquet"
+    return _cargar_catalogo_cooperativas_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_catalogo_cooperativas_cache(version) -> pd.DataFrame:
     filepath = MASTER_DATA_DIR / "agg_catalogo_cooperativas.parquet"
     if not filepath.exists():
         return pd.DataFrame()
@@ -71,7 +93,6 @@ def cargar_catalogo_cooperativas() -> pd.DataFrame:
 # FUNCIONES DE CONSULTA OPTIMIZADAS
 # =============================================================================
 
-@st.cache_data(ttl=3600)
 def obtener_metricas_kpi(fecha, segmento: str = "Todos") -> dict:
     """
     Obtiene métricas del sistema para KPIs de forma optimizada.
@@ -110,7 +131,6 @@ def obtener_metricas_kpi(fecha, segmento: str = "Todos") -> dict:
     return metricas
 
 
-@st.cache_data(ttl=3600)
 def obtener_ranking_rapido(fecha, codigo: str = '1', top_n: int = 20, segmento: str = "Todos") -> pd.DataFrame:
     """
     Obtiene ranking de cooperativas de forma optimizada.
@@ -138,7 +158,6 @@ def obtener_ranking_rapido(fecha, codigo: str = '1', top_n: int = 20, segmento: 
     return df_filtrado[['cooperativa', 'segmento', 'valor', 'valor_millones']]
 
 
-@st.cache_data(ttl=3600)
 def obtener_datos_treemap_rapido(fecha, segmento: str = "Todos", top_n: int = 20) -> pd.DataFrame:
     """
     Prepara datos para treemap de forma optimizada (vectorizado).
@@ -202,7 +221,6 @@ def obtener_datos_treemap_rapido(fecha, segmento: str = "Todos", top_n: int = 20
     return df_tree
 
 
-@st.cache_data(ttl=3600)
 def obtener_datos_treemap_pasivos_rapido(fecha, segmento: str = "Todos", top_n: int = 20) -> pd.DataFrame:
     """
     Prepara datos para treemap de pasivos y patrimonio (vectorizado).
@@ -272,7 +290,6 @@ def obtener_datos_treemap_pasivos_rapido(fecha, segmento: str = "Todos", top_n: 
     return df_tree
 
 
-@st.cache_data(ttl=3600)
 def obtener_crecimiento_anual(fecha_actual, fecha_anterior, codigo: str, segmento: str = "Todos", top_n: int = 20) -> pd.DataFrame:
     """
     Calcula crecimiento anual por cooperativa de forma optimizada.
@@ -315,7 +332,6 @@ def obtener_crecimiento_anual(fecha_actual, fecha_anterior, codigo: str, segment
 # FUNCIONES DE UTILIDAD
 # =============================================================================
 
-@st.cache_data(ttl=3600)
 def obtener_fechas_disponibles_rapido() -> list:
     """Obtiene lista de fechas únicas desde datos pre-agregados."""
     df = cargar_metricas_sistema()
@@ -325,7 +341,6 @@ def obtener_fechas_disponibles_rapido() -> list:
     return sorted(fechas, reverse=True)
 
 
-@st.cache_data(ttl=3600)
 def obtener_segmentos_disponibles_rapido() -> list:
     """Obtiene lista de segmentos únicos desde datos pre-agregados."""
     df = cargar_metricas_sistema()
@@ -334,7 +349,6 @@ def obtener_segmentos_disponibles_rapido() -> list:
     return sorted(df['segmento'].unique())
 
 
-@st.cache_data(ttl=3600)
 def obtener_cooperativas_por_segmento(segmento: str = "Todos") -> list:
     """Obtiene lista de cooperativas ordenadas por activos."""
     df = cargar_catalogo_cooperativas()
@@ -351,13 +365,18 @@ def obtener_cooperativas_por_segmento(segmento: str = "Todos") -> list:
 # CARGA DE DATOS COMPLETOS (SOLO CUANDO ES NECESARIO)
 # =============================================================================
 
-@st.cache_data(ttl=3600)
 def cargar_balance() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Carga balance.parquet completo.
     NOTA: Solo usar cuando se necesiten datos detallados (nivel 4-6 dígitos).
     Para la mayoría de consultas, usar las funciones optimizadas.
     """
+    filepath = MASTER_DATA_DIR / "balance.parquet"
+    return _cargar_balance_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_balance_cache(version) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     filepath = MASTER_DATA_DIR / "balance.parquet"
 
     if not filepath.exists():
@@ -387,9 +406,14 @@ def cargar_balance() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     return df, calidad
 
 
-@st.cache_data(ttl=3600)
 def cargar_metadata() -> Dict[str, Any]:
     """Carga metadata.json."""
+    filepath = MASTER_DATA_DIR / "metadata.json"
+    return _cargar_metadata_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_metadata_cache(version) -> Dict[str, Any]:
     filepath = MASTER_DATA_DIR / "metadata.json"
     if not filepath.exists():
         return {}
@@ -397,7 +421,6 @@ def cargar_metadata() -> Dict[str, Any]:
         return json.load(f)
 
 
-@st.cache_data(ttl=3600)
 def cargar_indicadores() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Carga indicadores.parquet (Indicadores CAMEL extraídos del pivot cache).
@@ -405,6 +428,12 @@ def cargar_indicadores() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     Columnas: cooperativa, segmento, fecha, codigo, indicador, valor, categoria
     Valores almacenados como ratios (0-1), no porcentajes.
     """
+    filepath = MASTER_DATA_DIR / "indicadores.parquet"
+    return _cargar_indicadores_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_indicadores_cache(version) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     filepath = MASTER_DATA_DIR / "indicadores.parquet"
 
     if not filepath.exists():
@@ -441,12 +470,17 @@ def cargar_indicadores() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     return df, calidad
 
 
-@st.cache_data(ttl=3600)
 def cargar_pyg() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Carga pyg.parquet (Estado de Pérdidas y Ganancias).
     Contiene cuentas 4 (Gastos) y 5 (Ingresos).
     """
+    filepath = MASTER_DATA_DIR / "pyg.parquet"
+    return _cargar_pyg_cache(version_archivo(filepath))
+
+
+@st.cache_data(ttl=3600)
+def _cargar_pyg_cache(version) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     filepath = MASTER_DATA_DIR / "pyg.parquet"
 
     if not filepath.exists():

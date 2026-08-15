@@ -194,6 +194,43 @@ La aplicacion esta desplegada en Streamlit Cloud y se actualiza automaticamente 
 - **Archivo principal**: `Inicio.py`
 - **Rama**: `main`
 
+## Actualizacion automatica
+
+GitHub Actions ejecuta `.github/workflows/actualizar_datos.yml` todos los dias a
+las 13:17 UTC. La frecuencia diaria es intencional: la SEPS no publica siempre
+el mismo dia del mes.
+
+El flujo mensual es:
+
+1. Localiza en el portal SEPS el ZIP anual de Estados Financieros Mensuales.
+2. Descarga a un archivo temporal con HTTPS, reintentos y `timeout`.
+3. Abre el ZIP y exige una fecha uniforme y los cuatro segmentos esperados.
+4. Si la fecha interna no supera la publicada, termina correctamente sin ETL ni commit.
+5. Si existe un mes nuevo, reemplaza la fuente de forma atomica, ejecuta los ETL,
+   valida todas las salidas y solo entonces crea el commit en `main`.
+6. Streamlit Cloud detecta el push. Los loaders incluyen la version fisica de
+   cada archivo en la clave de cache para mostrar el nuevo mes inmediatamente.
+
+La URL anual puede seguir siendo la misma aunque su contenido no haya avanzado.
+Por eso un HTTP 200 o una descarga completa no prueban que exista un mes nuevo;
+la fecha valida es la que se encuentra dentro de los XLSM del ZIP.
+
+### Diagnostico rapido
+
+```bash
+# Ultimas ejecuciones
+gh run list --workflow "Actualizar datos SEPS" --repo jp1309/cooperativas --limit 10
+
+# Ejecutar bajo demanda
+gh workflow run "Actualizar datos SEPS" --repo jp1309/cooperativas
+
+# Pruebas de las defensas
+python -m unittest discover -s tests -v
+```
+
+El 15 de agosto de 2026 el workflow funciono y verifico el ZIP oficial, pero la
+fuente aun contenia `2026-06-30`; por eso no habia un mes legitimo que publicar.
+
 ## Notas Tecnicas
 
 ### Normalizacion de nombres

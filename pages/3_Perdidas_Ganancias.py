@@ -54,7 +54,6 @@ MESES = {
 # FUNCIONES DE DATOS
 # =============================================================================
 
-@st.cache_data
 def obtener_orden_cooperativas_por_activos(segmento: str = "Todos") -> list:
     """Obtiene lista de cooperativas ordenadas por activos totales (mayor a menor)."""
     try:

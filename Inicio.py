@@ -25,8 +25,8 @@ st.set_page_config(
         Plataforma de análisis del sistema cooperativo ecuatoriano.
 
         **Fuente de datos:** Superintendencia de Economía Popular y Solidaria
-        **Período:** 2018 - 2025 (8 años de historia)
-        **Cooperativas:** 259 instituciones (Segmentos 1, 2, 3 y Mutualistas)
+        **Período:** 2018 - actualidad
+        **Cobertura:** Segmentos 1, 2, 3 y Mutualistas
         """
     },
 )
@@ -195,21 +195,36 @@ def obtener_metadata():
 # =============================================================================
 
 def main():
+    # La portada deriva su fecha y sus conteos de la misma metadata publicada
+    # por el ETL; no deben quedar períodos escritos a mano.
+    metadata = obtener_metadata()
+    cooperativas = metadata.get('cooperativas', 0) if metadata else 0
+    meses = metadata.get('meses', 0) if metadata else 0
+
+    from datetime import datetime
+    try:
+        fecha_inicio = datetime.fromisoformat(metadata['fecha_min'])
+        fecha_fin = datetime.fromisoformat(metadata['fecha_max'])
+        periodo_header = f"{fecha_inicio.year}-{fecha_fin.year}"
+        periodo_detalle = (
+            f"{fecha_inicio.strftime('%b %Y').title()} - "
+            f"{fecha_fin.strftime('%b %Y').title()} ({meses} meses)"
+        )
+        fecha_str = fecha_fin.strftime('%b %Y').title()
+    except (KeyError, TypeError, ValueError):
+        periodo_header = "fecha no disponible"
+        periodo_detalle = "Fecha no disponible"
+        fecha_str = "No disponible"
+
     # Header con gradiente verde (distinto al azul de bancos)
-    st.markdown("""
+    st.markdown(f"""
         <div class="main-header">
             <h1>🏦 Radar Cooperativo Ecuador</h1>
-            <p>Análisis Financiero del Sistema Cooperativo | Datos oficiales SEPS (2018-2026)</p>
+            <p>Análisis Financiero del Sistema Cooperativo | Datos oficiales SEPS ({periodo_header})</p>
         </div>
     """, unsafe_allow_html=True)
 
-    # KPIs dinámicos
-    metadata = obtener_metadata()
-
     col1, col2, col3, col4 = st.columns(4)
-
-    cooperativas = metadata.get('cooperativas', 259) if metadata else 259
-    meses = metadata.get('meses', 96) if metadata else 96
 
     with col1:
         st.markdown(f"""
@@ -220,10 +235,10 @@ def main():
         """, unsafe_allow_html=True)
 
     with col2:
-        st.markdown("""
+        st.markdown(f"""
         <div class="info-box">
             <h4>AÑOS DE HISTORIA</h4>
-            <p>8</p>
+            <p>{meses / 12:.1f}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -236,15 +251,6 @@ def main():
         """, unsafe_allow_html=True)
 
     with col4:
-        if metadata and 'fecha_max' in metadata:
-            from datetime import datetime
-            try:
-                fecha = datetime.fromisoformat(metadata['fecha_max'])
-                fecha_str = fecha.strftime('%b %Y').title()
-            except Exception:
-                fecha_str = "Dic 2025"
-        else:
-            fecha_str = "Dic 2025"
         st.markdown(f"""
         <div class="info-box">
             <h4>DATOS AL</h4>
@@ -510,13 +516,14 @@ def main():
     # INFO Y FOOTER
     # =========================================================================
 
-    st.markdown("""
+    registros_balance = metadata.get('registros_totales', 0) if metadata else 0
+    st.markdown(f"""
     ### Información del Sistema
 
     **Fuente de Datos:** Superintendencia de Economía Popular y Solidaria (SEPS)
-    **Período Cubierto:** Enero 2018 - Diciembre 2025 (96 meses)
-    **Instituciones:** 259 cooperativas + 4 mutualistas (Segmentos 1, 2 y 3)
-    **Formato:** Archivos Parquet optimizados (~22.7 millones de registros de balance)
+    **Período Cubierto:** {periodo_detalle}
+    **Instituciones históricas:** {cooperativas} (incluye mutualistas)
+    **Formato:** Archivos Parquet optimizados ({registros_balance:,} registros de balance)
 
     Los datos son procesados con normalización de nombres y validaciones de calidad
     para garantizar consistencia y consultas eficientes.

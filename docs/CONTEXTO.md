@@ -41,7 +41,7 @@ cooperativas/
 │   └── validar_actualizacion.py         # Puerta de calidad antes del commit automático
 ├── .github/
 │   └── workflows/
-│       └── actualizar_datos.yml        # GitHub Actions: actualización automática mensual
+│       └── actualizar_datos.yml        # GitHub Actions: verificación diaria, ETL mensual
 ├── master_data/
 │   ├── balance.parquet                 # 82 MB, 24.17M registros (sin ruc/nivel)
 │   ├── pyg.parquet                     # 18 MB, PyG incremental con valor_12m
@@ -364,7 +364,8 @@ Verificar en https://share.streamlit.io que la app apunte al branch `main` del r
 - Verificar que el workflow tenga `permissions: contents: write`
 
 ### Los datos no se actualizan al mes esperado
-- La SEPS publica datos con retraso variable. El workflow reintenta los días 15, 18, 20, 22
+- La SEPS publica datos con retraso variable. El workflow verifica todos los días
+  a las 13:17 UTC y termina como no-op cuando el mes interno no avanzó.
 - Verificar si el ZIP descargado contiene el mes nuevo revisando logs en GitHub Actions
 - El script descarga el ZIP del año completo; si la SEPS no incluyó el mes nuevo, los datos no cambian
 
@@ -435,6 +436,22 @@ El workflow de bancos no se ejecutó durante 1 mes porque el branch default era 
 **Regla**: Siempre agregar `observed=True` en cualquier `groupby()` o `pivot_table()` que opere sobre columnas con category dtype. En este proyecto: `cooperativa`, `segmento`, `codigo`, `cuenta`.
 
 ## Historial de cambios
+
+### 2026-08-15 - Eliminadas ventanas ciegas y caches obsoletas
+
+- El run programado `31869001819` descargó y validó correctamente el ZIP oficial:
+  la propia SEPS todavía servía corte `2026-06-30`, con los cuatro segmentos.
+- El cron cambió de los días 15/18/20/22 a verificación diaria. Si la fuente
+  publica después del día 22, el nuevo mes se detecta al día siguiente.
+- `actions/checkout` y `actions/setup-python` se actualizaron a v7 para evitar
+  la advertencia de acciones basadas en Node 20.
+- La descarga HTTPS tiene cuatro reintentos exponenciales ante 429 y errores 5xx.
+- Los loaders de Parquet/JSON incorporan tamaño y `mtime_ns` a la clave de cache;
+  Streamlit deja de conservar por una hora el mes anterior después del push.
+- Las pruebas se ejecutan antes de descargar y ahora cubren ZIP, incrementalidad,
+  reintentos HTTP e invalidación de cache.
+- Auditoría de nombres al corte junio 2026: Balance, PyG y CAMEL contienen las
+  mismas 203 entidades activas; PyG agrega únicamente cuatro totales `VT_TOTAL`.
 
 ### 2026-07-17 - Pipeline mensual endurecido y datos junio 2026
 

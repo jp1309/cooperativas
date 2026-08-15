@@ -19,6 +19,8 @@ import requests
 import shutil
 from pathlib import Path
 from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 try:
     from seps_zip import inspeccionar_zip_seps
@@ -49,6 +51,29 @@ HEADERS = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+
+
+def crear_sesion_http() -> requests.Session:
+    """Crea una sesión HTTPS con reintentos para fallos transitorios de la SEPS."""
+    reintentos = Retry(
+        total=4,
+        connect=4,
+        read=4,
+        status=4,
+        backoff_factor=1,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        respect_retry_after_header=True,
+    )
+    adaptador = HTTPAdapter(max_retries=reintentos)
+    sesion = requests.Session()
+    sesion.headers.update(HEADERS)
+    sesion.mount("https://", adaptador)
+    sesion.mount("http://", adaptador)
+    return sesion
+
+
+SESSION = crear_sesion_http()
 
 
 def obtener_fecha_actual_datos() -> datetime | None:
@@ -95,7 +120,7 @@ def scrape_download_id(anio: int) -> str | None:
     """Consulta el portal SEPS y obtiene el ID del ZIP financiero mensual."""
     print(f"  Accediendo a {URL_SEPS} ...")
     try:
-        resp = requests.get(URL_SEPS, headers=HEADERS, timeout=30)
+        resp = SESSION.get(URL_SEPS, timeout=(15, 45))
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"  ERROR al acceder al portal SEPS: {e}")
@@ -117,7 +142,7 @@ def descargar_zip(download_id: str, destino: Path) -> bool:
     print(f"  Destino: {destino}")
 
     try:
-        with requests.get(url, headers=HEADERS, stream=True, timeout=300) as resp:
+        with SESSION.get(url, stream=True, timeout=(30, 300)) as resp:
             resp.raise_for_status()
 
             # Verificar que es un ZIP
@@ -141,7 +166,7 @@ def descargar_zip(download_id: str, destino: Path) -> bool:
         print(f"\n  Descarga completa: {destino.stat().st_size / 1024 / 1024:.1f} MB")
         return True
 
-    except requests.RequestException as e:
+    except (requests.RequestException, OSError) as e:
         print(f"  ERROR al descargar: {e}")
         if destino.exists():
             destino.unlink()  # Eliminar archivo parcial

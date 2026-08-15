@@ -7,8 +7,9 @@ import pandas as pd
 
 from scripts.procesar_camel import combinar_historico_camel
 from scripts.procesar_pyg import combinar_historico_pyg
-from scripts.descargar_datos_seps import extraer_download_id
+from scripts.descargar_datos_seps import crear_sesion_http, extraer_download_id
 from scripts.seps_zip import inspeccionar_zip_seps
+from utils.file_version import version_archivo
 
 
 class InspeccionZipTests(unittest.TestCase):
@@ -62,6 +63,22 @@ class InspeccionZipTests(unittest.TestCase):
         </div>
         """
         self.assertEqual(extraer_download_id(html, 2026), "3255")
+
+    def test_cliente_http_reintenta_errores_transitorios(self):
+        sesion = crear_sesion_http()
+        reintentos = sesion.adapters["https://"].max_retries
+        self.assertEqual(reintentos.total, 4)
+        self.assertIn(503, reintentos.status_forcelist)
+
+
+class CacheDatosTests(unittest.TestCase):
+    def test_huella_cambia_al_reemplazar_archivo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "datos.parquet"
+            path.write_bytes(b"uno")
+            version_inicial = version_archivo(path)
+            path.write_bytes(b"contenido nuevo")
+            self.assertNotEqual(version_inicial, version_archivo(path))
 
 
 class IncrementalidadTests(unittest.TestCase):
